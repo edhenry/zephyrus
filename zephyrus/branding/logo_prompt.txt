@@ -1,0 +1,12 @@
+ZEPHYRUS — Distributed Intelligence Console
+
+Create a sleek modern technology emblem with the word "ZEPHYRUS" and the subtitle "Distributed Intelligence Console".
+Theme: autonomous command, zero-trust security, distributed systems, airflow and seamless movement.
+Primary icon: stylized flowing wind slash or vortex arc representing distributed intelligence in motion.
+Style: minimalist cyberpunk UI, clean vector lines, high contrast.
+Color palette: black background, charcoal midtones, teal-cyan neon accents; compatible with dark Chalkboard-style themes.
+Texture: subtle chalk grain or digital etching for a cyber chalkboard feel.
+Typography: bold compact sans-serif, futuristic but highly readable.
+Composition: strong horizontal layout; scalable to sticker, terminal overlay, and PDF header.
+Avoid gradients or photorealism; keep flat modern vector style.
+Mood: elite command station, stealth intelligence, silent precision.
