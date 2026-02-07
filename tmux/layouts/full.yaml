@@ -1,0 +1,21 @@
+name: full
+description: "Six agents in a grid — maximum parallelism"
+panes:
+  - id: agent-1
+    type: agent
+    mode: claude
+  - id: agent-2
+    type: agent
+    mode: claude
+  - id: agent-3
+    type: agent
+    mode: claude
+  - id: agent-4
+    type: agent
+    mode: claude
+  - id: agent-5
+    type: agent
+    mode: claude
+  - id: agent-6
+    type: agent
+    mode: claude

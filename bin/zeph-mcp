@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Zephyrus MCP server wrapper — runs over stdio for AI agent integration
+set -euo pipefail
+
+ZEPH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VENV_DIR="$ZEPH_ROOT/.venv"
+
+# Activate venv if it exists
+if [ -d "$VENV_DIR" ]; then
+    source "$VENV_DIR/bin/activate"
+fi
+
+exec python3 -m zeph_mcp.server "$@"
