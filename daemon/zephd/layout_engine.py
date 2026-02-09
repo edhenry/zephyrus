@@ -103,37 +103,55 @@ async def kill_session() -> None:
 
 
 async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
-    """Apply a layout to the tmux session. Returns mapping of pane_id -> tmux pane target."""
+    """Apply a layout to the tmux session. Returns mapping of pane_id -> tmux pane target.
+
+    If the session already exists with panes, returns the existing pane targets
+    rather than creating duplicate splits.
+    """
+    already_existed = await session_exists()
     await create_session(project_path)
 
     pane_targets: dict[str, str] = {}
     agent_panes = [p for p in layout.panes if p.type == "agent"]
     other_panes = [p for p in layout.panes if p.type != "agent"]
-
-    # The first pane is the one created with the session
-    base_target = f"{SESSION_NAME}:0.0"
     all_panes = agent_panes + other_panes
 
     if not all_panes:
         return pane_targets
 
-    # First pane uses the existing pane
-    first = all_panes[0]
-    pane_targets[first.id] = base_target
+    # If session already existed, map existing panes to layout pane IDs
+    if already_existed:
+        _, existing = await _run(
+            f"tmux list-panes -t {SESSION_NAME} -F '#{{pane_index}}'"
+        )
+        existing_indices = [
+            line.strip() for line in existing.strip().split("\n") if line.strip()
+        ]
+        for i, pane in enumerate(all_panes):
+            if i < len(existing_indices):
+                pane_targets[pane.id] = f"{SESSION_NAME}:0.{existing_indices[i]}"
+        logger.info(
+            "Session already exists with %d panes, reusing targets",
+            len(existing_indices),
+        )
+        return pane_targets
+
+    # Fresh session — the first pane is already created
+    pane_targets[all_panes[0].id] = f"{SESSION_NAME}:0.0"
 
     # Additional panes are created by splitting
     for i, pane in enumerate(all_panes[1:], 1):
-        # Alternate horizontal/vertical splits based on layout structure
         if i <= len(agent_panes) and i % 2 == 1:
-            split_flag = "-h"  # horizontal split
+            split_flag = "-h"
         else:
-            split_flag = "-v"  # vertical split
+            split_flag = "-v"
 
         _, output = await _run(
-            f"tmux split-window {split_flag} -t {SESSION_NAME} -c {project_path} -P -F '#{{pane_id}}'"
+            f"tmux split-window {split_flag} -t {SESSION_NAME} -c {project_path} -P -F '#{{pane_index}}'"
         )
-        if output:
-            pane_targets[pane.id] = f"{SESSION_NAME}:{output.lstrip('%')}" if not output.startswith('%') else output
+        idx = output.strip()
+        if idx:
+            pane_targets[pane.id] = f"{SESSION_NAME}:0.{idx}"
         else:
             pane_targets[pane.id] = f"{SESSION_NAME}:0.{i}"
 
@@ -153,10 +171,21 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
         elif pane.type == "lazygit":
             lg = shutil.which("lazygit") or "lazygit"
             await _run(f"tmux send-keys -t {target} '{lg}' Enter")
-        # Agent panes are launched separately via agent_registry + process spawning
+        # Agent panes are launched separately via _launch_agents_for_layout
 
     logger.info("Applied layout %s with %d panes", layout.name, len(all_panes))
     return pane_targets
+
+
+async def is_pane_busy(pane_target: str) -> bool:
+    """Check if a tmux pane already has a running process (beyond the shell)."""
+    _, output = await _run(
+        f"tmux list-panes -t {pane_target} -F '#{{pane_current_command}}'"
+    )
+    cmd = output.strip().split("\n")[0] if output.strip() else ""
+    # If the pane is running something other than a shell, it's busy
+    shells = {"bash", "zsh", "fish", "sh", "dash", "tcsh", "csh", "login"}
+    return cmd not in shells and cmd != ""
 
 
 async def launch_agent_in_pane(
@@ -166,7 +195,20 @@ async def launch_agent_in_pane(
     agent_id: str,
     env_vars: dict[str, str] | None = None,
 ) -> int | None:
-    """Launch an AI agent CLI in a specific tmux pane. Returns the PID or None."""
+    """Launch an AI agent CLI in a specific tmux pane. Returns the PID or None.
+
+    Skips launching if the pane already has a running process to prevent
+    duplicate agent launches.
+    """
+    # Don't re-launch if pane already has something running
+    if await is_pane_busy(pane_target):
+        logger.info("Pane %s already busy, skipping agent launch", pane_target)
+        _, pid_str = await _run(f"tmux list-panes -t {pane_target} -F '#{{pane_pid}}'")
+        try:
+            return int(pid_str.strip().split('\n')[0])
+        except (ValueError, IndexError):
+            return None
+
     cli_commands = {
         "claude": "claude",
         "gemini": "gemini",

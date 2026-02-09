@@ -553,14 +553,31 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 async def _launch_agents_for_layout(layout_spec, pane_targets, project_path):
-    """Register agents, inject MCP config, spawn CLI processes."""
+    """Register agents, inject MCP config, spawn CLI processes.
+
+    Idempotent: skips agents that already exist by name to prevent
+    duplicate registrations on repeated `zeph up` calls.
+    """
     launched = []
     project_servers = discover_project_mcp_servers(project_path)
     user_servers = discover_user_mcp_servers()
     extra_servers = {**user_servers, **project_servers}
 
+    # Build lookup of existing agents by name
+    existing_by_name = {a.name: a for a in agents.list_agents()}
+
     for pane in layout_spec.panes:
         if pane.type != "agent" or pane.id not in pane_targets:
+            continue
+
+        target = pane_targets[pane.id]
+
+        # If agent already registered with this name, just update its pane target
+        if pane.id in existing_by_name:
+            agent = existing_by_name[pane.id]
+            agent.tmux_pane = target
+            logger.info("Agent %s already registered, updating pane to %s", pane.id, target)
+            launched.append(agent.model_dump(mode="json"))
             continue
 
         agent = agents.register(
@@ -571,14 +588,14 @@ async def _launch_agents_for_layout(layout_spec, pane_targets, project_path):
         write_mcp_config(work_dir, agent.id, f"http://localhost:{DAEMON_PORT}", extra_servers)
 
         pid = await launch_agent_in_pane(
-            pane_targets[pane.id], pane.mode, work_dir, agent.id,
+            target, pane.mode, work_dir, agent.id,
             env_vars={
                 "ZEPH_AGENT_ID": agent.id,
                 "ZEPH_DAEMON_URL": f"http://localhost:{DAEMON_PORT}",
             },
         )
 
-        agent.tmux_pane = pane_targets[pane.id]
+        agent.tmux_pane = target
         agent.pid = pid
         agent.worktree = work_dir
         launched.append(agent.model_dump(mode="json"))
