@@ -241,18 +241,25 @@ async def send_keys_to_pane(pane_target: str, text: str) -> None:
     await _run(f"tmux send-keys -t {pane_target} '{escaped}' Enter")
 
 
-async def capture_pane_content(pane_target: str, lines: int = 500) -> list[str]:
+async def capture_pane_content(pane_target: str, lines: int = 500) -> tuple[list[str], str | None]:
     """Capture the visible content + scrollback of a tmux pane.
 
-    Returns a list of strings (one per line). Empty list on failure.
+    Returns (lines, error).  On success error is None.
+    Uses raw stdout (no strip) so blank lines are preserved.
     """
-    code, output = await _run(
-        f"tmux capture-pane -t {pane_target} -p -S -{lines}"
+    proc = await asyncio.create_subprocess_shell(
+        f"tmux capture-pane -t {pane_target} -p -S -{lines}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    if code != 0:
-        logger.warning("capture-pane failed for %s: %s", pane_target, output)
-        return []
-    return output.split("\n") if output else []
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode().strip() or "unknown error"
+        logger.warning("capture-pane failed for %s: %s", pane_target, err)
+        return [], err
+    # Preserve raw output (don't strip — blank lines are meaningful in a terminal)
+    raw = stdout.decode()
+    return raw.split("\n"), None
 
 
 async def get_pane_count() -> int:

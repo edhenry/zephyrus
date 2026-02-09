@@ -299,8 +299,10 @@ async def capture_agent_pane(agent_id: str, lines: int = Query(default=500)):
         raise HTTPException(404, "Agent not found")
     if not agent.tmux_pane:
         raise HTTPException(400, "Agent has no tmux pane assigned")
-    content = await capture_pane_content(agent.tmux_pane, lines)
-    return {"agent_id": agent_id, "pane": agent.tmux_pane, "lines": content}
+    content, err = await capture_pane_content(agent.tmux_pane, lines)
+    if err:
+        return {"agent_id": agent_id, "pane": agent.tmux_pane, "lines": [], "error": err}
+    return {"agent_id": agent_id, "pane": agent.tmux_pane, "lines": content, "error": None}
 
 
 # ============================================================

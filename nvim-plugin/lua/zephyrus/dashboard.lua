@@ -87,10 +87,18 @@ local function _capture_pane(agent)
   if not pane then
     return { "(no pane assigned)" }
   end
-  local result, err = _req("GET", "/agents/" .. agent.id .. "/capture")
+  local result, req_err = _req("GET", "/agents/" .. agent.id .. "/capture")
   if not result then
     return {
-      string.format("(capture failed: %s)", err or "unknown error"),
+      string.format("(capture request failed: %s)", req_err or "unknown error"),
+      string.format("  agent: %s  pane: %s", safe_str(agent.name) or "?", pane),
+    }
+  end
+  -- Check for tmux-level capture error returned by daemon
+  local capture_err = safe_str(result.error)
+  if capture_err then
+    return {
+      string.format("(tmux capture failed: %s)", capture_err),
       string.format("  agent: %s  pane: %s", safe_str(agent.name) or "?", pane),
     }
   end
