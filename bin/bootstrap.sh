@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${HOME}/zephyrus"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "[Zephyrus] Bootstrapping from ${REPO}"
 echo
