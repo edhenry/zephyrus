@@ -29,12 +29,23 @@ function M.setup_highlights()
   hl(0, "ZephId",         { fg = "#565f89" })
   hl(0, "ZephAgent",      { fg = "#73daca" })
 
-  -- Dashboard-specific
+  -- Dashboard cards
   hl(0, "ZephCardSelected", { fg = "#c0caf5", bg = "#292e42", bold = true })
   hl(0, "ZephCardNormal",   { fg = "#a9b1d6" })
   hl(0, "ZephCardLabel",    { fg = "#565f89" })
   hl(0, "ZephCardValue",    { fg = "#c0caf5" })
   hl(0, "ZephCardMode",     { fg = "#73daca", bold = true })
+  hl(0, "ZephBoxBorder",    { fg = "#3b4261" })
+  hl(0, "ZephBoxBorderSel", { fg = "#7aa2f7" })
+
+  -- Detail view (tmux pane capture)
+  hl(0, "ZephThinking",     { fg = "#565f89", italic = true })
+  hl(0, "ZephToolCall",     { fg = "#73daca", bold = true })
+  hl(0, "ZephToolSuccess",  { fg = "#9ece6a" })
+  hl(0, "ZephToolError",    { fg = "#f7768e", bold = true })
+  hl(0, "ZephUserInput",    { fg = "#c0caf5", bold = true })
+  hl(0, "ZephSeparator",    { fg = "#3b4261" })
+  hl(0, "ZephDetailHeader", { fg = "#c0caf5", bg = "#1a1b26", bold = true })
 end
 
 --- Create a centered floating window with a border and title.
@@ -393,18 +404,126 @@ local function safe_str(v)
   return tostring(v)
 end
 
---- Render the interactive agent dashboard with agent cards.
+--- Pad a string with spaces to reach a target display width.
+---@param str string
+---@param target number Desired display width
+---@return string
+local function pad_display(str, target)
+  local dw = vim.fn.strdisplaywidth(str)
+  local padding = math.max(0, target - dw)
+  return str .. string.rep(" ", padding)
+end
+
+-- ============================================================
+-- Dashboard: Task List (left pane)
+-- ============================================================
+
+--- Render the task list for the dashboard left pane.
+---@param buf number Buffer handle
+---@param tasks table[] List of task objects
+---@param selected_idx number 1-indexed selected task
+---@param is_focused boolean Whether this pane has focus
+function M.render_task_list(buf, tasks, selected_idx, is_focused)
+  local lines = {}
+  local highlights = {}
+  local focus_icon = is_focused and "●" or "○"
+
+  -- Header
+  table.insert(lines, string.format(" %s Task Stack (%d)", focus_icon, #tasks))
+  table.insert(highlights, { line = 0, col_start = 0, col_end = -1, hl = "ZephTitle" })
+  table.insert(lines, " " .. string.rep("─", 28))
+  table.insert(highlights, { line = 1, col_start = 0, col_end = -1, hl = "ZephSeparator" })
+  table.insert(lines, "")
+
+  if #tasks == 0 then
+    table.insert(lines, " No tasks.")
+    table.insert(lines, " Press N to create one.")
+    table.insert(lines, "")
+  end
+
+  local task_icons = {
+    pending = "○", claimed = "◐", in_progress = "●",
+    in_review = "◉", done = "✓", failed = "✗", blocked = "⊘",
+  }
+
+  for i, task in ipairs(tasks) do
+    local is_sel = (i == selected_idx) and is_focused
+    local marker = is_sel and "▸" or " "
+    local icon = task_icons[task.status or "pending"] or "?"
+    local pri = string.format("P%d", task.priority or 5)
+    local title = (task.title or ""):sub(1, 22)
+
+    -- Main line: marker icon [pri] title
+    local line = string.format(" %s %s [%s] %s", marker, icon, pri, title)
+    table.insert(lines, line)
+    local li = #lines - 1
+
+    if is_sel then
+      table.insert(highlights, { line = li, col_start = 0, col_end = -1, hl = "ZephCardSelected" })
+    end
+    -- Icon highlight
+    local icon_byte = line:find(icon, 1, true)
+    if icon_byte then
+      table.insert(highlights, { line = li, col_start = icon_byte - 1, col_end = icon_byte - 1 + #icon, hl = status_hl(task.status or "pending") })
+    end
+    -- Priority highlight
+    local pri_start = line:find("%[P")
+    if pri_start then
+      table.insert(highlights, { line = li, col_start = pri_start - 1, col_end = pri_start + #pri, hl = "ZephPriority" })
+    end
+
+    -- Sub-line: assignee + status
+    local assignee_id = safe_str(task.assigned_to)
+    local assign_str = assignee_id and ("→ " .. assignee_id:sub(1, 16)) or "unassigned"
+    local st = task.status or ""
+    local sub_line = string.format("       %s  %s", assign_str, st)
+    table.insert(lines, sub_line)
+    local sli = #lines - 1
+    if assignee_id then
+      table.insert(highlights, { line = sli, col_start = 7, col_end = 7 + #assign_str, hl = "ZephAgent" })
+    end
+    table.insert(highlights, { line = sli, col_start = #sub_line - #st, col_end = #sub_line, hl = status_hl(st) })
+  end
+
+  -- Footer
+  table.insert(lines, "")
+  table.insert(lines, " " .. string.rep("─", 28))
+  table.insert(lines, " N=new task  Tab=switch")
+  table.insert(highlights, { line = #lines - 2, col_start = 0, col_end = -1, hl = "ZephSeparator" })
+  table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephHeader" })
+
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("zephyrus_tasklist")
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  for _, h in ipairs(highlights) do
+    pcall(vim.api.nvim_buf_add_highlight, buf, ns, h.hl, h.line, h.col_start, h.col_end)
+  end
+end
+
+-- ============================================================
+-- Dashboard: Agent Cards (right pane, cards mode)
+-- ============================================================
+
+--- Render agent cards for the dashboard right pane.
 ---@param buf number Buffer handle
 ---@param agents_list table[] List of enriched agent objects
 ---@param selected_idx number 1-indexed selected agent
-function M.render_dashboard(buf, agents_list, selected_idx)
+---@param is_focused boolean Whether this pane has focus
+---@param width number Available window width
+function M.render_agent_cards(buf, agents_list, selected_idx, is_focused, width)
   local lines = {}
   local highlights = {}
+  local focus_icon = is_focused and "●" or "○"
+  local card_w = math.max(40, width - 4)  -- inner card width
 
-  -- Title
-  table.insert(lines, "  Zephyrus Agent Dashboard")
-  table.insert(highlights, { line = 0, col_start = 0, col_end = 28, hl = "ZephTitle" })
-  table.insert(lines, "  " .. string.rep("=", 72))
+  -- Header
+  table.insert(lines, string.format("  %s Agent Cards (%d)", focus_icon, #agents_list))
+  table.insert(highlights, { line = 0, col_start = 0, col_end = -1, hl = "ZephTitle" })
+  table.insert(lines, "  " .. string.rep("═", card_w))
+  table.insert(highlights, { line = 1, col_start = 0, col_end = -1, hl = "ZephSeparator" })
   table.insert(lines, "")
 
   if #agents_list == 0 then
@@ -414,127 +533,232 @@ function M.render_dashboard(buf, agents_list, selected_idx)
     table.insert(lines, "")
   end
 
-  for i, agent in ipairs(agents_list) do
-    local is_selected = (i == selected_idx)
-    local marker = is_selected and " >> " or "    "
+  local agent_icons = {
+    working = "●", idle = "○", error = "✗", starting = "◐", waiting = "◑", done = "✓",
+  }
 
-    -- Agent status icon
-    local st = agent.status or "unknown"
-    local st_icon
-    if st == "working" then
-      st_icon = " "
-    elseif st == "idle" then
-      st_icon = " "
-    elseif st == "error" then
-      st_icon = " "
-    elseif st == "starting" then
-      st_icon = " "
-    else
-      st_icon = " "
-    end
+  for i, agent in ipairs(agents_list) do
+    local is_sel = (i == selected_idx) and is_focused
+    local inner_w = card_w - 4  -- 2 for "│ " and " │"
+
+    local st = safe_str(agent.status) or "unknown"
+    local name = safe_str(agent.name) or (safe_str(agent.id) or "?"):sub(1, 12)
+    local mode = (safe_str(agent.mode) or "?"):upper()
+    local st_icon = agent_icons[st] or "?"
+    local bdr_hl = is_sel and "ZephBoxBorderSel" or "ZephBoxBorder"
 
     local card_start = #lines
 
-    -- Card top border
-    local border_hl = is_selected and "ZephCardSelected" or "ZephBorder"
-    table.insert(lines, marker .. string.rep("-", 68))
-    table.insert(highlights, { line = card_start, col_start = 0, col_end = 72, hl = border_hl })
-
-    -- Line 1: Name + Mode + Status
-    local name_str = (agent.name or agent.id:sub(1, 12))
-    local mode_str = (agent.mode or "unknown"):upper()
-    local status_line_str = string.format(
-      "%s| %s  %s [%s]  %s %s",
-      marker, st_icon, name_str, mode_str, st_icon, st
-    )
-    table.insert(lines, status_line_str)
-    local line1 = card_start + 1
-    table.insert(highlights, { line = line1, col_start = 0, col_end = 4, hl = is_selected and "ZephCardSelected" or "ZephCardNormal" })
+    -- Top border: ┌─ name ── [MODE] ── ● STATUS ──────┐
+    local top_inner = string.format(" %s ── [%s] ── %s %s ", name, mode, st_icon, st)
+    local remaining = math.max(0, inner_w - vim.fn.strdisplaywidth(top_inner))
+    local top_line = "  ┌─" .. top_inner .. string.rep("─", remaining) .. "─┐"
+    table.insert(lines, top_line)
+    table.insert(highlights, { line = card_start, col_start = 0, col_end = -1, hl = bdr_hl })
     -- Highlight mode tag
-    local mode_start = status_line_str:find("%[")
-    local mode_end = status_line_str:find("%]")
-    if mode_start and mode_end then
-      table.insert(highlights, { line = line1, col_start = mode_start - 1, col_end = mode_end, hl = "ZephCardMode" })
+    local ms, me = top_line:find("%[%u+%]")
+    if ms then
+      table.insert(highlights, { line = card_start, col_start = ms - 1, col_end = me, hl = "ZephCardMode" })
     end
     -- Highlight status
-    table.insert(highlights, { line = line1, col_start = #status_line_str - #st - 4, col_end = #status_line_str, hl = agent_status_hl(st) })
+    local ss = top_line:find(st, 1, true)
+    if ss then
+      table.insert(highlights, { line = card_start, col_start = ss - 1, col_end = ss - 1 + #st, hl = agent_status_hl(st) })
+    end
 
-    -- Line 2: ID + Pane
-    local agent_id = safe_str(agent.id) or "n/a"
-    local pane_str = safe_str(agent.tmux_pane) or "-"
-    local id_str = string.format("%s|   ID: %-26s  Pane: %s", marker, agent_id, pane_str)
-    table.insert(lines, id_str)
-    local line2 = card_start + 2
-    table.insert(highlights, { line = line2, col_start = 6, col_end = 10, hl = "ZephCardLabel" })
-    table.insert(highlights, { line = line2, col_start = 10, col_end = 38, hl = "ZephId" })
+    -- Card content lines
+    local function card_line(content)
+      local padded = pad_display(content, inner_w)
+      local cl = "  │ " .. padded .. " │"
+      table.insert(lines, cl)
+      local li = #lines - 1
+      table.insert(highlights, { line = li, col_start = 0, col_end = 5, hl = bdr_hl })
+      table.insert(highlights, { line = li, col_start = #cl - 3, col_end = -1, hl = bdr_hl })
+      if is_sel then
+        table.insert(highlights, { line = li, col_start = 5, col_end = #cl - 3, hl = "ZephCardSelected" })
+      end
+      return li
+    end
 
-    -- Line 3: Current task
-    local current_task_id = safe_str(agent.current_task)
+    -- Task line
+    local ct = safe_str(agent.current_task)
     local task_title = safe_str(agent._task_title) or "-"
     local task_status = safe_str(agent._task_status) or ""
-    local task_line_str
-    if current_task_id then
-      task_line_str = string.format(
-        "%s|   Task: [%s] %s (%s)",
-        marker, current_task_id:sub(1, 12), task_title:sub(1, 35), task_status
-      )
-    else
-      task_line_str = string.format("%s|   Task: none", marker)
-    end
-    table.insert(lines, task_line_str)
-    local line3 = card_start + 3
-    table.insert(highlights, { line = line3, col_start = 6, col_end = 12, hl = "ZephCardLabel" })
-    if current_task_id then
-      table.insert(highlights, { line = line3, col_start = 13, col_end = 27, hl = "ZephId" })
-      -- Highlight task status in parens
-      if task_status ~= "" then
-        table.insert(highlights, { line = line3, col_start = #task_line_str - #task_status - 1, col_end = #task_line_str - 1, hl = status_hl(task_status) })
+    if ct then
+      local task_str = string.format("Task: [%s] %s (%s)", ct:sub(1, 12), task_title:sub(1, 30), task_status)
+      local tl = card_line(task_str)
+      -- Highlight task ID
+      local tid_s = lines[tl + 1]:find("%[")
+      local tid_e = lines[tl + 1]:find("%]")
+      if tid_s and tid_e then
+        table.insert(highlights, { line = tl, col_start = tid_s - 1, col_end = tid_e, hl = "ZephId" })
       end
+      -- Highlight task status
+      if task_status ~= "" then
+        local ts_s = lines[tl + 1]:find(task_status, 1, true)
+        if ts_s then
+          table.insert(highlights, { line = tl, col_start = ts_s - 1, col_end = ts_s - 1 + #task_status, hl = status_hl(task_status) })
+        end
+      end
+    else
+      card_line("Task: none")
     end
 
-    -- Line 4: Branch + Worktree
-    local branch_str = safe_str(agent._task_branch) or "-"
-    local wt_str = safe_str(agent.worktree) or "-"
-    if #wt_str > 35 then
-      wt_str = "..." .. wt_str:sub(-32)
-    end
-    local branch_line = string.format("%s|   Branch: %-30s  Worktree: %s", marker, branch_str:sub(1, 30), wt_str)
-    table.insert(lines, branch_line)
-    local line4 = card_start + 4
-    table.insert(highlights, { line = line4, col_start = 6, col_end = 14, hl = "ZephCardLabel" })
-    table.insert(highlights, { line = line4, col_start = 14, col_end = 44, hl = "ZephAgent" })
+    -- Branch line
+    local branch = safe_str(agent._task_branch) or "-"
+    card_line(string.format("Branch: %s", branch:sub(1, inner_w - 10)))
 
-    -- Line 5: Last seen
-    local last_seen = safe_str(agent.last_seen) or "unknown"
-    local heartbeat_line = string.format("%s|   Last heartbeat: %s", marker, last_seen)
-    table.insert(lines, heartbeat_line)
-    local line5 = card_start + 5
-    table.insert(highlights, { line = line5, col_start = 6, col_end = 22, hl = "ZephCardLabel" })
+    -- Pane + heartbeat line
+    local pane = safe_str(agent.tmux_pane) or "-"
+    local last_seen = safe_str(agent.last_seen) or "?"
+    -- Show just the time portion if it's an ISO timestamp
+    local time_part = last_seen:match("T(%d+:%d+:%d+)") or last_seen
+    card_line(string.format("Pane: %-18s  Heartbeat: %s", pane, time_part:sub(1, 12)))
 
-    -- Card bottom border
-    table.insert(lines, marker .. string.rep("-", 68))
-    table.insert(highlights, { line = card_start + 6, col_start = 0, col_end = 72, hl = border_hl })
+    -- Bottom border
+    local bottom_line = "  └" .. string.rep("─", inner_w + 2) .. "┘"
+    table.insert(lines, bottom_line)
+    table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = bdr_hl })
 
-    -- Spacing between cards
+    -- Spacing
     table.insert(lines, "")
   end
 
-  -- Footer with keybindings
-  table.insert(lines, "")
-  local footer_line = #lines
-  table.insert(lines, " Keys: [j/k] navigate  [Enter] focus pane  [i]nstruct  [d]iff  [m]erge  [x] reject")
-  table.insert(lines, "       [a]ssign task   [p]ause/resume      [r]efresh   [q]uit")
-  table.insert(highlights, { line = footer_line, col_start = 0, col_end = 82, hl = "ZephHeader" })
-  table.insert(highlights, { line = footer_line + 1, col_start = 0, col_end = 64, hl = "ZephHeader" })
+  -- Footer
+  table.insert(lines, "  " .. string.rep("─", card_w))
+  table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephSeparator" })
+  table.insert(lines, "  j/k=navigate  Enter=drill in  i=instruct  d=diff  m=merge  x=reject")
+  table.insert(lines, "  a=assign  p=pause  r=refresh  Tab=switch  q=quit")
+  table.insert(highlights, { line = #lines - 2, col_start = 0, col_end = -1, hl = "ZephHeader" })
+  table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephHeader" })
 
-  -- Write to buffer
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
-  vim.bo[buf].filetype = "zephyrus"
 
-  -- Apply highlights
-  local ns = vim.api.nvim_create_namespace("zephyrus_dashboard")
+  local ns = vim.api.nvim_create_namespace("zephyrus_cards")
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  for _, h in ipairs(highlights) do
+    pcall(vim.api.nvim_buf_add_highlight, buf, ns, h.hl, h.line, h.col_start, h.col_end)
+  end
+end
+
+-- ============================================================
+-- Dashboard: Agent Detail (right pane, detail mode)
+-- ============================================================
+
+--- Pattern-based highlight rules for tmux pane capture lines.
+local _detail_patterns = {
+  { pat = "^%s*Read%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*Edit%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*Write%s+",   hl = "ZephToolCall" },
+  { pat = "^%s*Bash%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*Grep%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*Glob%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*Task%s+",    hl = "ZephToolCall" },
+  { pat = "^%s*WebFetch%s+", hl = "ZephToolCall" },
+  { pat = "^%s*WebSearch%s+", hl = "ZephToolCall" },
+  { pat = "^%s*NotebookEdit%s+", hl = "ZephToolCall" },
+  { pat = "✓",              hl = "ZephToolSuccess" },
+  { pat = "✗",              hl = "ZephToolError" },
+  { pat = "[Ee]rror:",      hl = "ZephToolError" },
+  { pat = "[Ff]ailed",      hl = "ZephToolError" },
+  { pat = "^%s*>",          hl = "ZephUserInput" },
+  { pat = "^%s*%$",         hl = "ZephUserInput" },
+  { pat = "[Tt]hinking",    hl = "ZephThinking" },
+}
+
+--- Render agent detail view with tmux pane capture.
+---@param buf number Buffer handle
+---@param agent table Agent object (enriched)
+---@param capture_lines string[] Lines captured from tmux pane
+---@param width number Available window width
+function M.render_agent_detail(buf, agent, capture_lines, width)
+  local lines = {}
+  local highlights = {}
+  local sep_w = math.max(40, width - 4)
+
+  local name = safe_str(agent.name) or (safe_str(agent.id) or "?"):sub(1, 12)
+  local mode = (safe_str(agent.mode) or "?"):upper()
+  local st = safe_str(agent.status) or "unknown"
+  local ct = safe_str(agent.current_task)
+  local task_title = safe_str(agent._task_title) or ""
+  local task_status = safe_str(agent._task_status) or ""
+  local branch = safe_str(agent._task_branch) or "-"
+  local pane = safe_str(agent.tmux_pane) or "-"
+
+  local agent_icons = {
+    working = "●", idle = "○", error = "✗", starting = "◐", waiting = "◑", done = "✓",
+  }
+  local st_icon = agent_icons[st] or "?"
+
+  -- Header block
+  local h1 = string.format("  ═══ %s [%s] %s %s ", name, mode, st_icon, st)
+  h1 = h1 .. string.rep("═", math.max(0, sep_w - vim.fn.strdisplaywidth(h1)))
+  table.insert(lines, h1)
+  table.insert(highlights, { line = 0, col_start = 0, col_end = -1, hl = "ZephDetailHeader" })
+  -- Highlight mode
+  local ms, me = h1:find("%[%u+%]")
+  if ms then
+    table.insert(highlights, { line = 0, col_start = ms - 1, col_end = me, hl = "ZephCardMode" })
+  end
+  -- Highlight status word
+  local sts = h1:find(st, 1, true)
+  if sts then
+    table.insert(highlights, { line = 0, col_start = sts - 1, col_end = sts - 1 + #st, hl = agent_status_hl(st) })
+  end
+
+  -- Info lines
+  if ct then
+    table.insert(lines, string.format("  Task: [%s] %s (%s)", ct:sub(1, 12), task_title:sub(1, 40), task_status))
+  else
+    table.insert(lines, "  Task: none")
+  end
+  table.insert(highlights, { line = 1, col_start = 2, col_end = 7, hl = "ZephCardLabel" })
+  if ct and task_status ~= "" then
+    local tss = lines[2]:find(task_status, 1, true)
+    if tss then
+      table.insert(highlights, { line = 1, col_start = tss - 1, col_end = tss - 1 + #task_status, hl = status_hl(task_status) })
+    end
+  end
+
+  table.insert(lines, string.format("  Branch: %s    Pane: %s", branch:sub(1, 35), pane))
+  table.insert(highlights, { line = 2, col_start = 2, col_end = 9, hl = "ZephCardLabel" })
+
+  -- Separator
+  table.insert(lines, "  " .. string.rep("─", sep_w))
+  table.insert(highlights, { line = 3, col_start = 0, col_end = -1, hl = "ZephSeparator" })
+  table.insert(lines, "")
+
+  -- Captured pane content
+  local capture_start = #lines
+  for _, cline in ipairs(capture_lines) do
+    table.insert(lines, "  " .. cline)
+  end
+
+  -- Apply pattern-based highlighting to captured lines
+  for idx = capture_start, #lines - 1 do
+    local text = lines[idx + 1]
+    for _, rule in ipairs(_detail_patterns) do
+      if text:find(rule.pat) then
+        table.insert(highlights, { line = idx, col_start = 0, col_end = -1, hl = rule.hl })
+        break  -- first match wins
+      end
+    end
+  end
+
+  -- Footer
+  table.insert(lines, "")
+  table.insert(lines, "  " .. string.rep("─", sep_w))
+  table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephSeparator" })
+  table.insert(lines, "  i=instruct  d=diff  m=merge  x=reject  Enter=focus pane  Esc=back  G=bottom")
+  table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephHeader" })
+
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("zephyrus_detail")
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   for _, h in ipairs(highlights) do
     pcall(vim.api.nvim_buf_add_highlight, buf, ns, h.hl, h.line, h.col_start, h.col_end)
