@@ -8,6 +8,7 @@ __pycache__/
 
 # Zephyrus state (local only)
 .zephyrus/
+.mcp.json
 
 # OS
 .DS_Store
