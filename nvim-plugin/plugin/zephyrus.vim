@@ -5,11 +5,12 @@ if exists('g:loaded_zephyrus') | finish | endif
 let g:loaded_zephyrus = 1
 
 " User commands
-command! ZephTasks    lua require('zephyrus').task_board()
-command! ZephAgents   lua require('zephyrus').agent_panel()
-command! ZephPush     lua require('zephyrus').push_task()
-command! ZephRefresh  lua require('zephyrus').refresh()
-command! ZephStatus   lua vim.notify(require('zephyrus').status_line())
+command! ZephTasks     lua require('zephyrus').task_board()
+command! ZephAgents    lua require('zephyrus').agent_panel()
+command! ZephDashboard lua require('zephyrus').dashboard()
+command! ZephPush      lua require('zephyrus').push_task()
+command! ZephRefresh   lua require('zephyrus').refresh()
+command! ZephStatus    lua vim.notify(require('zephyrus').status_line())
 
 command! -nargs=1 ZephDiff   lua require('zephyrus').review_diff(<f-args>)
 command! -nargs=1 ZephMerge  lua require('zephyrus').merge_task(<f-args>)

@@ -2,6 +2,7 @@
 --- Connects to the zephd FastAPI daemon to manage tasks, agents, and reviews.
 
 local ui = require("zephyrus.ui")
+local dashboard = require("zephyrus.dashboard")
 
 local M = {}
 
@@ -79,11 +80,15 @@ function M.setup(opts)
   -- Set up highlight groups
   ui.setup_highlights()
 
+  -- Inject the request function into the dashboard module
+  dashboard.set_request_fn(_request)
+
   -- Set up default keymaps under <leader>z
   if M.config.keymaps then
     local map = vim.keymap.set
     map("n", "<leader>zt", function() M.task_board() end,  { desc = "Zephyrus: Task Board" })
     map("n", "<leader>za", function() M.agent_panel() end, { desc = "Zephyrus: Agent Panel" })
+    map("n", "<leader>zd", function() M.dashboard() end,   { desc = "Zephyrus: Agent Dashboard" })
     map("n", "<leader>zn", function() M.push_task() end,   { desc = "Zephyrus: New Task" })
     map("n", "<leader>zs", function()
       local s = M.status_line()
@@ -276,6 +281,17 @@ function M.agent_panel()
       vim.notify("Zephyrus: " .. (new_err or "refresh failed"), vim.log.levels.ERROR)
     end
   end, { buffer = float.buf, nowait = true, silent = true })
+end
+
+-- ============================================================
+-- Agent Dashboard (interactive)
+-- ============================================================
+
+--- Open the interactive agent dashboard with agent cards.
+function M.dashboard()
+  -- Ensure request function is injected (in case setup() hasn't run yet)
+  dashboard.set_request_fn(_request)
+  dashboard.open()
 end
 
 -- ============================================================
@@ -496,6 +512,9 @@ function M.refresh()
   else
     _active_agent_panel = nil
   end
+
+  -- Refresh agent dashboard if open
+  dashboard.refresh()
 
   -- Invalidate status cache so next status_line() call fetches fresh data
   _status_cache.last_fetched = 0

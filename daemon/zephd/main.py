@@ -230,6 +230,63 @@ async def deregister_agent(agent_id: str):
     return {"deleted": True}
 
 
+class SendInstructionBody(BaseModel):
+    text: str
+
+
+@app.post("/agents/{agent_id}/send")
+async def send_instruction_to_agent(agent_id: str, body: SendInstructionBody):
+    """Send an instruction to an agent's tmux pane via send-keys."""
+    agent = agents.get(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    if not agent.tmux_pane:
+        raise HTTPException(400, "Agent has no tmux pane assigned")
+    await send_keys_to_pane(agent.tmux_pane, body.text)
+    await event_bus.publish(
+        "agent.instruction",
+        {"agent_id": agent_id, "text": body.text},
+    )
+    return {"sent": True, "agent_id": agent_id, "pane": agent.tmux_pane}
+
+
+@app.post("/agents/{agent_id}/pause")
+async def pause_agent(agent_id: str):
+    """Toggle an agent between idle and working status."""
+    agent = agents.get(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    new_status = AgentStatus.IDLE if agent.status == AgentStatus.WORKING else AgentStatus.WORKING
+    agent = agents.update(agent_id, AgentUpdate(status=new_status))
+    await event_bus.publish(
+        "agent.status",
+        {"agent_id": agent_id, "status": agent.status.value},
+    )
+    return {"agent_id": agent_id, "status": agent.status.value}
+
+
+@app.post("/agents/{agent_id}/assign")
+async def assign_task_to_agent(agent_id: str):
+    """Pop the next available task and assign it to an agent."""
+    agent = agents.get(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    task = await db.pop_task(agent_id)
+    if not task:
+        raise HTTPException(404, "No tasks available")
+    agents.update(agent_id, AgentUpdate(current_task=task.id))
+    if agent.tmux_pane:
+        instruction = f"You have been assigned task [{task.id[:12]}]: {task.title}"
+        if task.description:
+            instruction += f"\nDescription: {task.description}"
+        await send_keys_to_pane(agent.tmux_pane, instruction)
+    await event_bus.publish(
+        "task.assigned",
+        {"task_id": task.id, "agent_id": agent_id},
+    )
+    return {"assigned": True, "task_id": task.id, "agent_id": agent_id}
+
+
 # ============================================================
 # Layout endpoints
 # ============================================================
