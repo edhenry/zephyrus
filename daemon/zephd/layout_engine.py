@@ -14,6 +14,10 @@ logger = logging.getLogger("zephd.layout")
 
 LAYOUT_DIR = Path(__file__).resolve().parent.parent.parent / "tmux" / "layouts"
 SESSION_NAME = "zephyrus"
+# Dedicated tmux socket so all commands hit the same server regardless of the
+# daemon's TMUX env var (which varies depending on how/where it was started).
+TMUX_SOCKET = "zephyrus"
+_TMUX = f"tmux -L {TMUX_SOCKET}"
 
 
 @dataclass
@@ -81,7 +85,7 @@ async def _run(cmd: str) -> tuple[int, str]:
 
 
 async def session_exists() -> bool:
-    code, _ = await _run(f"tmux has-session -t {SESSION_NAME} 2>/dev/null")
+    code, _ = await _run(f"{_TMUX} has-session -t {SESSION_NAME} 2>/dev/null")
     return code == 0
 
 
@@ -91,14 +95,14 @@ async def create_session(project_path: str) -> None:
         logger.info("Session %s already exists", SESSION_NAME)
         return
 
-    await _run(f"tmux new-session -d -s {SESSION_NAME} -c {project_path}")
-    logger.info("Created tmux session: %s", SESSION_NAME)
+    await _run(f"{_TMUX} new-session -d -s {SESSION_NAME} -c {project_path}")
+    logger.info("Created tmux session: %s (socket: %s)", SESSION_NAME, TMUX_SOCKET)
 
 
 async def kill_session() -> None:
     """Kill the zephyrus tmux session."""
     if await session_exists():
-        await _run(f"tmux kill-session -t {SESSION_NAME}")
+        await _run(f"{_TMUX} kill-session -t {SESSION_NAME}")
         logger.info("Killed tmux session: %s", SESSION_NAME)
 
 
@@ -122,7 +126,7 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
     # If session already existed, map existing panes to layout pane IDs
     if already_existed:
         _, existing = await _run(
-            f"tmux list-panes -t {SESSION_NAME} -F '#{{pane_index}}'"
+            f"{_TMUX} list-panes -t {SESSION_NAME} -F '#{{pane_index}}'"
         )
         existing_indices = [
             line.strip() for line in existing.strip().split("\n") if line.strip()
@@ -147,7 +151,7 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
             split_flag = "-v"
 
         _, output = await _run(
-            f"tmux split-window {split_flag} -t {SESSION_NAME} -c {project_path} -P -F '#{{pane_index}}'"
+            f"{_TMUX} split-window {split_flag} -t {SESSION_NAME} -c {project_path} -P -F '#{{pane_index}}'"
         )
         idx = output.strip()
         if idx:
@@ -156,7 +160,7 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
             pane_targets[pane.id] = f"{SESSION_NAME}:0.{i}"
 
     # Re-tile for even spacing
-    await _run(f"tmux select-layout -t {SESSION_NAME} tiled")
+    await _run(f"{_TMUX} select-layout -t {SESSION_NAME} tiled")
 
     # Now launch the appropriate program in each pane
     for pane in all_panes:
@@ -167,10 +171,10 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
         if pane.type == "nvim":
             nvim = shutil.which("nvim") or "nvim"
             args_str = " ".join(pane.args) if pane.args else ""
-            await _run(f"tmux send-keys -t {target} '{nvim} {args_str}' Enter")
+            await _run(f"{_TMUX} send-keys -t {target} '{nvim} {args_str}' Enter")
         elif pane.type == "lazygit":
             lg = shutil.which("lazygit") or "lazygit"
-            await _run(f"tmux send-keys -t {target} '{lg}' Enter")
+            await _run(f"{_TMUX} send-keys -t {target} '{lg}' Enter")
         # Agent panes are launched separately via _launch_agents_for_layout
 
     logger.info("Applied layout %s with %d panes", layout.name, len(all_panes))
@@ -180,7 +184,7 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
 async def is_pane_busy(pane_target: str) -> bool:
     """Check if a tmux pane already has a running process (beyond the shell)."""
     _, output = await _run(
-        f"tmux list-panes -t {pane_target} -F '#{{pane_current_command}}'"
+        f"{_TMUX} list-panes -t {pane_target} -F '#{{pane_current_command}}'"
     )
     cmd = output.strip().split("\n")[0] if output.strip() else ""
     # If the pane is running something other than a shell, it's busy
@@ -203,7 +207,7 @@ async def launch_agent_in_pane(
     # Don't re-launch if pane already has something running
     if await is_pane_busy(pane_target):
         logger.info("Pane %s already busy, skipping agent launch", pane_target)
-        _, pid_str = await _run(f"tmux list-panes -t {pane_target} -F '#{{pane_pid}}'")
+        _, pid_str = await _run(f"{_TMUX} list-panes -t {pane_target} -F '#{{pane_pid}}'")
         try:
             return int(pid_str.strip().split('\n')[0])
         except (ValueError, IndexError):
@@ -222,13 +226,13 @@ async def launch_agent_in_pane(
     # Set environment variables in the pane
     if env_vars:
         for key, value in env_vars.items():
-            await _run(f"tmux send-keys -t {pane_target} 'export {key}={value}' Enter")
+            await _run(f"{_TMUX} send-keys -t {pane_target} 'export {key}={value}' Enter")
 
     # Launch the agent
-    await _run(f"tmux send-keys -t {pane_target} 'cd {project_path} && {cmd}' Enter")
+    await _run(f"{_TMUX} send-keys -t {pane_target} 'cd {project_path} && {cmd}' Enter")
 
     # Try to get the PID
-    _, pid_str = await _run(f"tmux list-panes -t {pane_target} -F '#{{pane_pid}}'")
+    _, pid_str = await _run(f"{_TMUX} list-panes -t {pane_target} -F '#{{pane_pid}}'")
     try:
         return int(pid_str.strip().split('\n')[0])
     except (ValueError, IndexError):
@@ -238,7 +242,7 @@ async def launch_agent_in_pane(
 async def send_keys_to_pane(pane_target: str, text: str) -> None:
     """Send text to a tmux pane (e.g., to deliver feedback to an agent)."""
     escaped = text.replace("'", "'\\''")
-    await _run(f"tmux send-keys -t {pane_target} '{escaped}' Enter")
+    await _run(f"{_TMUX} send-keys -t {pane_target} '{escaped}' Enter")
 
 
 async def capture_pane_content(pane_target: str, lines: int = 500) -> tuple[list[str], str | None]:
@@ -248,7 +252,7 @@ async def capture_pane_content(pane_target: str, lines: int = 500) -> tuple[list
     Uses raw stdout (no strip) so blank lines are preserved.
     """
     proc = await asyncio.create_subprocess_shell(
-        f"tmux capture-pane -t {pane_target} -p -S -{lines}",
+        f"{_TMUX} capture-pane -t {pane_target} -p -S -{lines}",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -266,7 +270,7 @@ async def get_pane_count() -> int:
     """Get the number of panes in the zephyrus session."""
     if not await session_exists():
         return 0
-    _, output = await _run(f"tmux list-panes -t {SESSION_NAME} 2>/dev/null | wc -l")
+    _, output = await _run(f"{_TMUX} list-panes -t {SESSION_NAME} 2>/dev/null | wc -l")
     try:
         return int(output.strip())
     except ValueError:
