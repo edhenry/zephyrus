@@ -34,16 +34,19 @@ zeph ls
 │  (human)    │     │  (daemon)    │     │ (AI agents)    │
 └─────────────┘     │              │     └────────────────┘
                     │  REST :9800  │
-                    │  WebSocket   │
-                    │  SQLite DB   │
-                    │  Task Stack  │
-                    │  Agent Reg.  │
+┌─────────────┐     │  WebSocket   │     ┌────────────────┐
+│  zeph-tui   │────▶│  SQLite DB   │◀────│ nvim plugin    │
+│  (Textual)  │     │  Task Stack  │     │ (Lua)          │
+└─────────────┘     │  Agent Reg.  │     └────────────────┘
+                    │  Worktrees   │
                     └──────────────┘
 ```
 
-- **zephd** — FastAPI coordination daemon. Task stack with SQLite persistence, in-memory agent registry with heartbeat monitoring, WebSocket event bus, tmux layout engine. Runs on port 9800.
-- **zeph** — CLI for humans. Push/pop tasks, launch agents, apply layouts, manage lifecycle.
+- **zephd** — FastAPI coordination daemon. Task stack with SQLite persistence, in-memory agent registry with heartbeat monitoring, WebSocket event bus, tmux layout engine, git worktree manager, MCP config auto-injection. Runs on port 9800.
+- **zeph** — CLI for humans. Push/pop tasks, launch agents, apply layouts, review/merge/reject agent work, manage worktrees and MCP servers.
 - **zeph-mcp** — MCP server (JSON-RPC over stdio). Gives AI agents 6 tools to interact with the task stack. Works with Claude Code, Gemini CLI, or any MCP-compatible agent.
+- **zeph-tui** — Textual-based TUI dashboard. Live task board, agent panel, WebSocket event log, keyboard-driven workflow.
+- **nvim plugin** — Neovim integration. Floating task board, agent panel, statusline, push/review/merge/reject from within your editor.
 
 ## Usage
 
@@ -111,6 +114,44 @@ zeph agent stop claude-1                # deregister
 zeph agent stop --all                   # stop all
 ```
 
+### Review / Merge Workflow
+
+When agents flag tasks as `in_review`, you review and act:
+
+```bash
+zeph review review              # list tasks awaiting review
+zeph review diff <id>           # see what changed (file list + stats)
+zeph review merge <id>          # merge branch into main
+zeph review merge <id> -t dev   # merge into a different target
+zeph review reject <id> -r "Tests are failing"  # send feedback to agent
+```
+
+The reject command sends feedback directly to the agent's tmux pane and resets the task to `in_progress`.
+
+### Git Worktrees
+
+Each task gets an isolated git worktree so agents don't conflict:
+
+```bash
+zeph worktree ls                # list all worktrees
+zeph worktree rm <path>         # remove a specific worktree
+zeph worktree clean             # prune stale worktrees
+```
+
+Worktrees are created at `~/.zephyrus/worktrees/{repo}/{task-slug}/`.
+
+### MCP Server Management
+
+Manage MCP servers available to agents:
+
+```bash
+zeph mcp ls                     # list discovered servers (project + user)
+zeph mcp add my-tool node ./my-server.js -a --port -a 3000
+zeph mcp rm my-tool             # remove a user-level server
+```
+
+User-level servers are stored at `~/.zephyrus/mcp/servers.json`. Project-level servers come from the project's `.mcp.json`.
+
 ### Layouts
 
 Predefined tmux arrangements:
@@ -127,9 +168,54 @@ zeph layout apply pair       # 2 agents + nvim + lazygit
 | `squad` | 4 agents + nvim + lazygit |
 | `full` | 6 agents (grid) |
 
+### TUI Dashboard
+
+A live terminal dashboard built with Textual:
+
+```bash
+zeph-tui                     # launch the dashboard
+```
+
+Features: live task table, agent panel, WebSocket event log, keyboard shortcuts (n=new task, d=done, f=fail, x=delete, r=refresh, q=quit).
+
+### tmux Status Line
+
+Add Zephyrus status to your tmux status bar:
+
+```bash
+# In tmux.conf:
+set -g status-right '#(~/.../bin/zeph-status)'
+```
+
+Shows agent counts and task breakdown: `zeph:2w/3a 4p/1r/2d`
+
+### Neovim Integration
+
+Add the plugin to your config (lazy.nvim):
+
+```lua
+{ dir = "/path/to/zephyrus/nvim-plugin", lazy = false },
+```
+
+Commands:
+
+| Command | Description |
+|---------|-------------|
+| `:ZephTasks` | Floating task board |
+| `:ZephAgents` | Floating agent panel |
+| `:ZephPush` | Push a new task |
+| `:ZephDiff <id>` | Show diff for a task |
+| `:ZephMerge <id>` | Merge a task's branch |
+| `:ZephReject <id>` | Reject with feedback |
+| `:ZephRefresh` | Refresh cached data |
+
+Statusline integration: `require('zephyrus').status_line()` returns a compact status string.
+
 ### MCP Integration (for AI Agents)
 
-The MCP server lets AI agents coordinate through the task stack. Add to your project's `.mcp.json`:
+The MCP server lets AI agents coordinate through the task stack. When you launch agents via `zeph up`, the daemon auto-injects `.mcp.json` into their working directories.
+
+For manual setup, add to your project's `.mcp.json`:
 
 ```json
 {
@@ -164,10 +250,11 @@ Agents can push subtasks for other agents, flag work for review, and report thei
 zephyrus/
 ├── bin/
 │   ├── bootstrap.sh          # Install script (auto-detects repo location)
-│   ├── devinit.sh            # Polyglot project scaffolder
 │   ├── zeph                  # CLI wrapper
 │   ├── zephd                 # Daemon wrapper
-│   └── zeph-mcp              # MCP server wrapper
+│   ├── zeph-mcp              # MCP server wrapper
+│   ├── zeph-tui              # TUI dashboard wrapper
+│   └── zeph-status           # tmux status line script
 ├── daemon/                   # Coordination daemon (FastAPI + SQLite)
 │   ├── pyproject.toml
 │   └── zephd/
@@ -176,7 +263,10 @@ zephyrus/
 │       ├── db.py             # SQLite layer + dependency resolution
 │       ├── agent_registry.py # In-memory registry + heartbeat
 │       ├── event_bus.py      # WebSocket pub/sub
-│       └── layout_engine.py  # tmux pane management
+│       ├── layout_engine.py  # tmux pane management
+│       ├── mcp_config.py     # MCP config auto-injection
+│       ├── worktree_manager.py # Git worktree lifecycle
+│       └── templates.py      # Agent prompt templates
 ├── cli/                      # CLI (Typer + Rich)
 │   ├── pyproject.toml
 │   └── zeph/
@@ -185,21 +275,30 @@ zephyrus/
 │       └── commands/
 │           ├── tasks.py      # push, ls, show, done, fail, edit, rm
 │           ├── agents.py     # ls, launch, stop
-│           └── layout.py     # ls, apply
+│           ├── layout.py     # ls, apply
+│           ├── review.py     # diff, merge, reject, review
+│           ├── worktree.py   # ls, clean, rm
+│           └── mcp.py        # ls, add, rm
 ├── mcp-server/               # MCP server (JSON-RPC over stdio)
 │   ├── pyproject.toml
 │   └── zeph_mcp/
 │       └── server.py         # 6 tools for agent coordination
+├── tui/                      # TUI dashboard (Textual)
+│   ├── pyproject.toml
+│   └── zeph_tui/
+│       └── app.py            # Live dashboard with task/agent panels
+├── nvim-plugin/              # Neovim plugin (Lua)
+│   ├── plugin/
+│   │   └── zephyrus.vim      # Command definitions
+│   └── lua/zephyrus/
+│       ├── init.lua          # Main module (setup, commands, API)
+│       └── ui.lua            # Floating windows + highlighting
 ├── tmux/
-│   ├── tmux.conf             # tmux configuration
 │   └── layouts/              # Layout definitions (YAML)
 │       ├── solo.yaml
 │       ├── pair.yaml
 │       ├── squad.yaml
 │       └── full.yaml
-├── kitty/                    # Kitty terminal config
-├── nvim/                     # Neovim config (init.lua)
-├── zephyrus/                 # Core assets (cheatsheets, overlays, branding)
 ├── docs/
 │   └── DESIGN.md             # Full architecture design document
 └── LICENSE
@@ -210,25 +309,18 @@ zephyrus/
 Zephyrus also includes portable terminal tooling:
 
 - **Kitty overlay** — `Ctrl+Shift+H` for a cheat sheet overlay
-- **Neovim plugin** — `:ZephyrusCheat` or `<leader>ch` for a floating cheat sheet
-- **Dark/Light themes** — auto-detected
-
-```bash
-# Kitty — add to kitty.conf:
-map ctrl+shift+h launch --type=overlay --title "Zephyrus Cheats" --cwd=current --env ZE_CHALK=1 sh -lc "~/.config/zephyrus/overlays/kitty/cheat_overlay.sh"
-
-# Neovim — add to lazy.nvim:
-{ dir = vim.fn.expand("~/.config/zephyrus/nvim"), lazy = false },
-```
+- **Neovim cheatsheet** — `:ZephyrusCheat` or `<leader>ch`
 
 ## Roadmap
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full architecture design.
 
-**Phase 1 (done):** Daemon, CLI, MCP server, tmux layouts
-**Phase 2 (next):** MCP config auto-injection, server discovery, tmux status line
-**Phase 3:** Git worktree manager, review/merge workflow, Neovim plugin
-**Phase 4:** TUI dashboard (Textual), session persistence, agent templates
+- **Phase 1 (done):** Daemon, CLI, MCP server, tmux layouts
+- **Phase 2 (done):** MCP config auto-injection, server discovery, agent prompt templates, tmux status line
+- **Phase 3 (done):** Git worktree manager, review/merge/reject workflow, CLI commands for all new features
+- **Phase 4 (done):** TUI dashboard (Textual), Neovim plugin, updated README
+
+**Up next:** CI/CD feedback loop, intelligent merge orchestration, persistent agent memory, auto-decomposition with dependency graphs.
 
 ## License
 

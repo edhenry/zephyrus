@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# zeph-status — tmux status line integration for Zephyrus Command Center
+# Add to tmux.conf: set -g status-right '#(zeph-status)'
+
+DAEMON_URL="${ZEPH_DAEMON_URL:-http://127.0.0.1:9800}"
+
+# Quick check: is daemon running?
+PID_FILE="${HOME}/.zephyrus/state/zephd.pid"
+if [ ! -f "$PID_FILE" ]; then
+    echo "zeph:down"
+    exit 0
+fi
+
+PID=$(cat "$PID_FILE" 2>/dev/null)
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "zeph:down"
+    exit 0
+fi
+
+# Fetch status from daemon (timeout 2s)
+STATUS=$(python3 -c "
+import httpx, sys
+try:
+    r = httpx.get('${DAEMON_URL}/status', timeout=2.0)
+    d = r.json()
+    a = d['agents']
+    t = d['tasks']
+    parts = []
+    if a['total'] > 0:
+        parts.append(f\"{a['working']}w/{a['total']}a\")
+    parts.append(f\"{t['pending']}p/{t['in_progress']}a/{t['in_review']}r/{t['done']}d\")
+    print('zeph:' + ' '.join(parts))
+except Exception:
+    print('zeph:err')
+" 2>/dev/null)
+
+echo "${STATUS:-zeph:err}"

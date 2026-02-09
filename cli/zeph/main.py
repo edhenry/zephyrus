@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 
 from .client import ZephClient
-from .commands import agents, layout, tasks
+from .commands import agents, layout, mcp, review, tasks, worktree
 
 console = Console()
 
@@ -25,6 +25,9 @@ app = typer.Typer(
 app.add_typer(tasks.app, name="task", help="Manage the task stack")
 app.add_typer(agents.app, name="agent", help="Manage agents")
 app.add_typer(layout.app, name="layout", help="Manage layouts")
+app.add_typer(review.app, name="review", help="Review, merge, and reject agent work")
+app.add_typer(worktree.app, name="worktree", help="Manage git worktrees")
+app.add_typer(mcp.app, name="mcp", help="Manage MCP servers")
 
 
 # ============================================================
@@ -110,7 +113,12 @@ def status():
 
     console.print("\n[bold]Zephyrus Command Center[/bold]")
     console.print(f"  Daemon:  [green]running[/green] (port {data['port']}, pid {data['pid']})")
-    console.print(f"  Agents:  {data['agents']}")
+
+    a = data["agents"]
+    console.print(
+        f"  Agents:  {a['total']} total"
+        f" ({a['working']} working, {a['idle']} idle, {a['error']} error)"
+    )
 
     t = data["tasks"]
     console.print(

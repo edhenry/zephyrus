@@ -35,7 +35,7 @@ if command -v uv &>/dev/null; then
 
     # Install all three packages in dev mode
     source "${REPO}/.venv/bin/activate"
-    uv pip install -e "${REPO}/daemon" -e "${REPO}/cli" -e "${REPO}/mcp-server"
+    uv pip install -e "${REPO}/daemon" -e "${REPO}/cli" -e "${REPO}/mcp-server" -e "${REPO}/tui"
 
 elif command -v pip3 &>/dev/null; then
     INSTALLER="pip3"
@@ -47,11 +47,11 @@ elif command -v pip3 &>/dev/null; then
     fi
 
     source "${REPO}/.venv/bin/activate"
-    pip3 install -e "${REPO}/daemon" -e "${REPO}/cli" -e "${REPO}/mcp-server"
+    pip3 install -e "${REPO}/daemon" -e "${REPO}/cli" -e "${REPO}/mcp-server" -e "${REPO}/tui"
 
 else
     echo "  [WARN] Neither uv nor pip3 found. Install Python packages manually."
-    echo "         pip install -e daemon/ -e cli/ -e mcp-server/"
+    echo "         pip install -e daemon/ -e cli/ -e mcp-server/ -e tui/"
 fi
 
 # --- Add bin/ to PATH ---
@@ -74,13 +74,14 @@ echo "  Kitty — add to kitty.conf:"
 echo "    map ctrl+shift+h launch --type=overlay --title 'Zephyrus Cheats' --cwd=current --env ZE_CHALK=1 sh -lc '~/.config/zephyrus/overlays/kitty/cheat_overlay.sh'"
 echo
 echo "  Neovim — add to your plugin loader (lazy.nvim):"
-echo "    { dir = vim.fn.expand('~/.config/zephyrus/nvim'), lazy = false },"
+echo "    { dir = '${REPO}/nvim-plugin', lazy = false },"
 echo
 echo "  Quick start:"
 echo "    zeph up                  # start the command center"
 echo "    zeph push 'My task'      # add a task"
 echo "    zeph ls                  # list tasks"
 echo "    zeph status              # check status"
+echo "    zeph-tui                 # open TUI dashboard"
 echo "    zeph down                # shut down"
 echo
 echo "[Zephyrus] Bootstrap complete."

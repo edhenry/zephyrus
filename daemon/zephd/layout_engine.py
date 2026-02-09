@@ -193,6 +193,12 @@ async def launch_agent_in_pane(
         return None
 
 
+async def send_keys_to_pane(pane_target: str, text: str) -> None:
+    """Send text to a tmux pane (e.g., to deliver feedback to an agent)."""
+    escaped = text.replace("'", "'\\''")
+    await _run(f"tmux send-keys -t {pane_target} '{escaped}' Enter")
+
+
 async def get_pane_count() -> int:
     """Get the number of panes in the zephyrus session."""
     if not await session_exists():

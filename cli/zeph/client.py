@@ -119,3 +119,52 @@ class ZephClient:
 
     def status(self) -> dict:
         return self._req("GET", "/status")
+
+    # --- Worktrees ---
+
+    def list_worktrees(self, project_path: str = ".") -> dict:
+        return self._req("GET", "/worktrees", params={"project_path": project_path})
+
+    def create_worktree(self, project_path: str, branch: str, task_id: str, task_title: str = "") -> dict:
+        return self._req("POST", "/worktrees", params={
+            "project_path": project_path, "branch": branch,
+            "task_id": task_id, "task_title": task_title,
+        })
+
+    def remove_worktree(self, project_path: str, worktree_path: str) -> dict:
+        return self._req("DELETE", "/worktrees", params={
+            "project_path": project_path, "worktree_path": worktree_path,
+        })
+
+    def clean_worktrees(self, project_path: str = ".") -> dict:
+        return self._req("POST", "/worktrees/clean", params={"project_path": project_path})
+
+    # --- Review / Merge ---
+
+    def task_diff(self, task_id: str, project_path: str = ".") -> dict:
+        return self._req("GET", f"/tasks/{task_id}/diff", params={"project_path": project_path})
+
+    def merge_task(self, task_id: str, project_path: str = ".", target: str = "main") -> dict:
+        return self._req("POST", f"/tasks/{task_id}/merge", params={
+            "project_path": project_path, "target": target,
+        })
+
+    def reject_task(self, task_id: str, reason: str = "") -> dict:
+        return self._req("POST", f"/tasks/{task_id}/reject", json={"reason": reason})
+
+    # --- MCP Servers ---
+
+    def list_mcp_servers(self, project_path: str = ".") -> dict:
+        return self._req("GET", "/mcp/servers", params={"project_path": project_path})
+
+    def add_mcp_server(self, name: str, command: str, args: list[str] | None = None,
+                       env: dict[str, str] | None = None) -> dict:
+        body = {"name": name, "command": command}
+        if args:
+            body["args"] = args
+        if env:
+            body["env"] = env
+        return self._req("POST", "/mcp/servers", json=body)
+
+    def remove_mcp_server(self, name: str) -> dict:
+        return self._req("DELETE", f"/mcp/servers/{name}")
