@@ -241,6 +241,20 @@ async def send_keys_to_pane(pane_target: str, text: str) -> None:
     await _run(f"tmux send-keys -t {pane_target} '{escaped}' Enter")
 
 
+async def capture_pane_content(pane_target: str, lines: int = 500) -> list[str]:
+    """Capture the visible content + scrollback of a tmux pane.
+
+    Returns a list of strings (one per line). Empty list on failure.
+    """
+    code, output = await _run(
+        f"tmux capture-pane -t {pane_target} -p -S -{lines}"
+    )
+    if code != 0:
+        logger.warning("capture-pane failed for %s: %s", pane_target, output)
+        return []
+    return output.split("\n") if output else []
+
+
 async def get_pane_count() -> int:
     """Get the number of panes in the zephyrus session."""
     if not await session_exists():

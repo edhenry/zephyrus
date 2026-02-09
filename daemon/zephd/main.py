@@ -18,6 +18,7 @@ from .event_bus import EventBus
 from .layout_engine import (
     apply_layout,
     available_layouts,
+    capture_pane_content,
     create_session,
     kill_session,
     launch_agent_in_pane,
@@ -285,6 +286,21 @@ async def assign_task_to_agent(agent_id: str):
         {"task_id": task.id, "agent_id": agent_id},
     )
     return {"assigned": True, "task_id": task.id, "agent_id": agent_id}
+
+
+@app.get("/agents/{agent_id}/capture")
+async def capture_agent_pane(agent_id: str, lines: int = Query(default=500)):
+    """Capture the tmux pane content for an agent.
+
+    Runs from the daemon process which has access to the correct tmux server.
+    """
+    agent = agents.get(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    if not agent.tmux_pane:
+        raise HTTPException(400, "Agent has no tmux pane assigned")
+    content = await capture_pane_content(agent.tmux_pane, lines)
+    return {"agent_id": agent_id, "pane": agent.tmux_pane, "lines": content}
 
 
 # ============================================================

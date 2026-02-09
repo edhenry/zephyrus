@@ -75,24 +75,26 @@ local function _fetch_agents()
   return agents_list
 end
 
---- Capture a tmux pane's visible content + scrollback.
----@param pane_target string tmux pane target (e.g. "zephyrus:0.1")
+--- Capture a tmux pane's content via the daemon (which has access to the
+--- correct tmux server).  Falls back to a descriptive error message.
+---@param agent table agent object with .id and .tmux_pane
 ---@return string[] lines
-local function _capture_pane(pane_target)
-  if not pane_target then
+local function _capture_pane(agent)
+  if not agent then
+    return { "(no agent)" }
+  end
+  local pane = safe_str(agent.tmux_pane)
+  if not pane then
     return { "(no pane assigned)" }
   end
-  -- pane_target is always a safe format like "zephyrus:0.1" — no shellescape needed
-  local cmd = string.format("tmux capture-pane -t %s -p -S -500 2>&1", pane_target)
-  local lines = vim.fn.systemlist(cmd)
-  if vim.v.shell_error ~= 0 then
-    local err = (lines[1] or "unknown error")
+  local result, err = _req("GET", "/agents/" .. agent.id .. "/capture")
+  if not result then
     return {
-      string.format("(capture failed: %s)", err),
-      string.format("  target: %s", pane_target),
-      string.format("  cmd: %s", cmd),
+      string.format("(capture failed: %s)", err or "unknown error"),
+      string.format("  agent: %s  pane: %s", safe_str(agent.name) or "?", pane),
     }
   end
+  local lines = result.lines or {}
   -- Strip ANSI escape sequences for clean rendering
   for i, line in ipairs(lines) do
     lines[i] = line:gsub("\27%[[%d;]*[a-zA-Z]", "")
@@ -146,8 +148,7 @@ local function _render_main()
   local width = vim.api.nvim_win_get_width(_state.main_win)
 
   if _state.mode == "detail" and _state.detail_agent then
-    local pane = safe_str(_state.detail_agent.tmux_pane)
-    local capture_lines = _capture_pane(pane)
+    local capture_lines = _capture_pane(_state.detail_agent)
     ui.render_agent_detail(_state.main_buf, _state.detail_agent, capture_lines, width)
   else
     local is_focused = _state.focus == "agents"
