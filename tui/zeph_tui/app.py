@@ -613,9 +613,13 @@ class ZephDashboard(App):
     # Key-bound actions
     # ---------------------------------------------------------------
 
-    async def action_new_task(self) -> None:
+    def action_new_task(self) -> None:
         """Push the new-task modal and POST to the daemon on submit."""
-        result = await self.push_screen_wait(NewTaskScreen())
+        self.push_screen(NewTaskScreen(), callback=self._on_new_task_result)
+
+    @work(exclusive=True)
+    async def _on_new_task_result(self, result: dict | None) -> None:
+        """Handle the result from the new-task modal."""
         if result is None:
             return
 
