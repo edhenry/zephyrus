@@ -82,11 +82,16 @@ local function _capture_pane(pane_target)
   if not pane_target then
     return { "(no pane assigned)" }
   end
-  local lines = vim.fn.systemlist(
-    string.format("tmux capture-pane -t %s -p -S -500 2>/dev/null", vim.fn.shellescape(pane_target))
-  )
+  -- pane_target is always a safe format like "zephyrus:0.1" — no shellescape needed
+  local cmd = string.format("tmux capture-pane -t %s -p -S -500 2>&1", pane_target)
+  local lines = vim.fn.systemlist(cmd)
   if vim.v.shell_error ~= 0 then
-    return { "(capture failed — pane may not exist)" }
+    local err = (lines[1] or "unknown error")
+    return {
+      string.format("(capture failed: %s)", err),
+      string.format("  target: %s", pane_target),
+      string.format("  cmd: %s", cmd),
+    }
   end
   -- Strip ANSI escape sequences for clean rendering
   for i, line in ipairs(lines) do
