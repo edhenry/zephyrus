@@ -5,6 +5,12 @@ local ui = require("zephyrus.ui")
 
 local M = {}
 
+--- Safely convert a value that may be vim.NIL (JSON null) to a Lua string or nil.
+local function safe_str(v)
+  if v == nil or v == vim.NIL then return nil end
+  return tostring(v)
+end
+
 -- Module-level state
 local _dashboard_state = {
   float = nil,        -- {buf, win}
@@ -51,11 +57,12 @@ local function _fetch_agents()
 
   -- Enrich agents with task details
   for _, agent in ipairs(agents_list) do
-    if agent.current_task and task_map[agent.current_task] then
-      local t = task_map[agent.current_task]
+    local ct = safe_str(agent.current_task)
+    if ct and task_map[ct] then
+      local t = task_map[ct]
       agent._task_title = t.title or ""
       agent._task_status = t.status or ""
-      agent._task_branch = t.branch or ""
+      agent._task_branch = safe_str(t.branch) or ""
     end
   end
 
@@ -114,12 +121,13 @@ end
 --- Focus the selected agent's tmux pane.
 local function _action_focus_pane()
   local agent = _selected_agent()
-  if not agent or not agent.tmux_pane then
+  local pane = safe_str(agent.tmux_pane)
+  if not agent or not pane then
     vim.notify("Zephyrus: no tmux pane for this agent", vim.log.levels.WARN)
     return
   end
-  vim.fn.system(string.format("tmux select-pane -t %s", agent.tmux_pane))
-  vim.notify(string.format("Zephyrus: focused pane %s (%s)", agent.tmux_pane, agent.name or ""), vim.log.levels.INFO)
+  vim.fn.system(string.format("tmux select-pane -t %s", pane))
+  vim.notify(string.format("Zephyrus: focused pane %s (%s)", pane, safe_str(agent.name) or ""), vim.log.levels.INFO)
 end
 
 --- Send an instruction to the selected agent's tmux pane.
@@ -130,14 +138,15 @@ local function _action_send_instruction()
     return
   end
 
-  vim.ui.input({ prompt = string.format("Instruction for %s: ", agent.name or agent.id:sub(1, 12)) }, function(text)
+  local agent_label = safe_str(agent.name) or (safe_str(agent.id) or "?"):sub(1, 12)
+  vim.ui.input({ prompt = string.format("Instruction for %s: ", agent_label) }, function(text)
     if not text or text == "" then
       return
     end
     local result, err = _req("POST", "/agents/" .. agent.id .. "/send", { text = text })
     if result then
       vim.notify(
-        string.format("Zephyrus: sent to %s: %s", agent.name or agent.id:sub(1, 12), text:sub(1, 40)),
+        string.format("Zephyrus: sent to %s: %s", agent_label, text:sub(1, 40)),
         vim.log.levels.INFO
       )
     else
@@ -149,18 +158,20 @@ end
 --- Show diff for the selected agent's current task.
 local function _action_show_diff()
   local agent = _selected_agent()
-  if not agent or not agent.current_task then
+  local ct = safe_str(agent.current_task)
+  if not agent or not ct then
     vim.notify("Zephyrus: agent has no current task", vim.log.levels.WARN)
     return
   end
 
-  local diff, err = _req("GET", "/tasks/" .. agent.current_task .. "/diff?project_path=.")
+  local diff, err = _req("GET", "/tasks/" .. ct .. "/diff?project_path=.")
   if not diff then
     vim.notify("Zephyrus: " .. (err or "failed to get diff"), vim.log.levels.ERROR)
     return
   end
 
-  local float = ui.create_float("Diff: " .. (agent.name or agent.id:sub(1, 12)), 0.70, 0.60)
+  local agent_label = safe_str(agent.name) or (safe_str(agent.id) or "?"):sub(1, 12)
+  local float = ui.create_float("Diff: " .. agent_label, 0.70, 0.60)
   if float.buf == -1 then return end
   ui.render_diff(float.buf, diff)
 end
@@ -168,12 +179,11 @@ end
 --- Merge the selected agent's current task.
 local function _action_merge()
   local agent = _selected_agent()
-  if not agent or not agent.current_task then
+  local task_id = agent and safe_str(agent.current_task)
+  if not agent or not task_id then
     vim.notify("Zephyrus: agent has no current task", vim.log.levels.WARN)
     return
   end
-
-  local task_id = agent.current_task
   vim.ui.input({ prompt = string.format("Merge task %s? (y/N): ", task_id:sub(1, 12)) }, function(confirm)
     if confirm ~= "y" and confirm ~= "Y" then
       vim.notify("Zephyrus: merge cancelled", vim.log.levels.INFO)
@@ -193,12 +203,11 @@ end
 --- Reject the selected agent's current task.
 local function _action_reject()
   local agent = _selected_agent()
-  if not agent or not agent.current_task then
+  local task_id = agent and safe_str(agent.current_task)
+  if not agent or not task_id then
     vim.notify("Zephyrus: agent has no current task", vim.log.levels.WARN)
     return
   end
-
-  local task_id = agent.current_task
   vim.ui.input({ prompt = "Rejection reason: " }, function(reason)
     if not reason or reason == "" then
       vim.notify("Zephyrus: rejection cancelled", vim.log.levels.INFO)
@@ -226,7 +235,7 @@ local function _action_assign()
   local result, err = _req("POST", "/agents/" .. agent.id .. "/assign")
   if result then
     vim.notify(
-      string.format("Zephyrus: assigned task %s to %s", (result.task_id or ""):sub(1, 12), agent.name or ""),
+      string.format("Zephyrus: assigned task %s to %s", (result.task_id or ""):sub(1, 12), safe_str(agent.name) or ""),
       vim.log.levels.INFO
     )
     _refresh()
@@ -246,7 +255,7 @@ local function _action_pause()
   local result, err = _req("POST", "/agents/" .. agent.id .. "/pause")
   if result then
     vim.notify(
-      string.format("Zephyrus: agent %s → %s", agent.name or agent.id:sub(1, 12), result.status or ""),
+      string.format("Zephyrus: agent %s → %s", safe_str(agent.name) or (safe_str(agent.id) or "?"):sub(1, 12), result.status or ""),
       vim.log.levels.INFO
     )
     _refresh()

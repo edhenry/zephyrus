@@ -385,6 +385,14 @@ function M.render_diff(buf, diff)
   end
 end
 
+--- Helper: safely convert a value that may be vim.NIL/null to a Lua string or nil.
+---@param v any
+---@return string|nil
+local function safe_str(v)
+  if v == nil or v == vim.NIL then return nil end
+  return tostring(v)
+end
+
 --- Render the interactive agent dashboard with agent cards.
 ---@param buf number Buffer handle
 ---@param agents_list table[] List of enriched agent objects
@@ -452,20 +460,23 @@ function M.render_dashboard(buf, agents_list, selected_idx)
     table.insert(highlights, { line = line1, col_start = #status_line_str - #st - 4, col_end = #status_line_str, hl = agent_status_hl(st) })
 
     -- Line 2: ID + Pane
-    local id_str = string.format("%s|   ID: %-26s  Pane: %s", marker, agent.id or "n/a", agent.tmux_pane or "-")
+    local agent_id = safe_str(agent.id) or "n/a"
+    local pane_str = safe_str(agent.tmux_pane) or "-"
+    local id_str = string.format("%s|   ID: %-26s  Pane: %s", marker, agent_id, pane_str)
     table.insert(lines, id_str)
     local line2 = card_start + 2
     table.insert(highlights, { line = line2, col_start = 6, col_end = 10, hl = "ZephCardLabel" })
     table.insert(highlights, { line = line2, col_start = 10, col_end = 38, hl = "ZephId" })
 
     -- Line 3: Current task
-    local task_title = agent._task_title or "-"
-    local task_status = agent._task_status or ""
+    local current_task_id = safe_str(agent.current_task)
+    local task_title = safe_str(agent._task_title) or "-"
+    local task_status = safe_str(agent._task_status) or ""
     local task_line_str
-    if agent.current_task then
+    if current_task_id then
       task_line_str = string.format(
         "%s|   Task: [%s] %s (%s)",
-        marker, (agent.current_task):sub(1, 12), task_title:sub(1, 35), task_status
+        marker, current_task_id:sub(1, 12), task_title:sub(1, 35), task_status
       )
     else
       task_line_str = string.format("%s|   Task: none", marker)
@@ -473,7 +484,7 @@ function M.render_dashboard(buf, agents_list, selected_idx)
     table.insert(lines, task_line_str)
     local line3 = card_start + 3
     table.insert(highlights, { line = line3, col_start = 6, col_end = 12, hl = "ZephCardLabel" })
-    if agent.current_task then
+    if current_task_id then
       table.insert(highlights, { line = line3, col_start = 13, col_end = 27, hl = "ZephId" })
       -- Highlight task status in parens
       if task_status ~= "" then
@@ -482,8 +493,8 @@ function M.render_dashboard(buf, agents_list, selected_idx)
     end
 
     -- Line 4: Branch + Worktree
-    local branch_str = agent._task_branch or "-"
-    local wt_str = agent.worktree or "-"
+    local branch_str = safe_str(agent._task_branch) or "-"
+    local wt_str = safe_str(agent.worktree) or "-"
     if #wt_str > 35 then
       wt_str = "..." .. wt_str:sub(-32)
     end
@@ -494,7 +505,7 @@ function M.render_dashboard(buf, agents_list, selected_idx)
     table.insert(highlights, { line = line4, col_start = 14, col_end = 44, hl = "ZephAgent" })
 
     -- Line 5: Last seen
-    local last_seen = agent.last_seen or "unknown"
+    local last_seen = safe_str(agent.last_seen) or "unknown"
     local heartbeat_line = string.format("%s|   Last heartbeat: %s", marker, last_seen)
     table.insert(lines, heartbeat_line)
     local line5 = card_start + 5
