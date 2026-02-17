@@ -2,6 +2,12 @@
 -- Tip: in Kitty set: macos_cmd_modifier ctrl
 -- Then press Cmd+P / Cmd+Shift+F / Cmd+B / Cmd+` etc.
 
+-- Version check: many plugins require 0.10+
+local nvim_010 = vim.fn.has("nvim-0.10") == 1
+if not nvim_010 then
+  vim.notify("Zephyrus: Neovim 0.10+ recommended. Some plugins will be disabled.", vim.log.levels.WARN)
+end
+
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
@@ -72,8 +78,9 @@ vim.keymap.set({ "n", "t" }, "<D-j>", function()
 end, { desc = "Toggle bottom terminal" })
 
 -- ---------- Detect zephyrus root dynamically ----------
-local zeph_link = vim.fn.resolve(vim.fn.expand("~/.config/zephyrus"))
-local zeph_root = vim.fn.fnamemodify(zeph_link, ":h")
+-- Derive from this file's real path: {repo}/nvim/init.lua -> {repo}
+local _this = debug.getinfo(1, "S").source:sub(2)
+local zeph_root = vim.fn.fnamemodify(vim.fn.resolve(_this), ":h:h")
 local zeph_nvim_plugin = zeph_root .. "/nvim-plugin"
 
 -- ---------- lazy.nvim bootstrap ----------
@@ -93,6 +100,7 @@ require("lazy").setup({
   { "j-hui/fidget.nvim",          opts = {} }, -- LSP progress
   {
     "folke/noice.nvim",
+    cond = nvim_010,
     dependencies = { "MunifTanjim/nui.nvim" },
     opts = {
       presets = { bottom_search = true, command_palette = true },
@@ -107,9 +115,7 @@ require("lazy").setup({
   {
     "OXY2DEV/markview.nvim",
     lazy = false,
-
-    -- Completion for `blink.cmp`
-    -- dependencies = { "saghen/blink.cmp" },
+    cond = nvim_010,
   },
 
   -- Science Editing
@@ -121,6 +127,7 @@ require("lazy").setup({
 
   {
     "quarto-dev/quarto-nvim",
+    cond = nvim_010,
     dependencies = {
       "jmbuhr/otter.nvim",
       "nvim-treesitter/nvim-treesitter",
@@ -416,6 +423,7 @@ require("lazy").setup({
   -- Problems / Diagnostics
   {
     "folke/trouble.nvim",
+    cond = nvim_010,
     opts = {},
     keys = {
       { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics panel" },
@@ -449,6 +457,7 @@ require("lazy").setup({
   -- Minimap
   {
     "gorbit99/codewindow.nvim",
+    cond = nvim_010,
     config = function()
       local codewindow = require("codewindow")
       codewindow.setup()
@@ -456,10 +465,10 @@ require("lazy").setup({
     end
   },
 
-  -- LSP + Mason + CMP
-  { "williamboman/mason.nvim",          config = true },
-  { "williamboman/mason-lspconfig.nvim" },
-  { "neovim/nvim-lspconfig" },
+  -- LSP + Mason + CMP (require 0.10+)
+  { "williamboman/mason.nvim",          config = true, cond = nvim_010 },
+  { "williamboman/mason-lspconfig.nvim", cond = nvim_010 },
+  { "neovim/nvim-lspconfig",            cond = nvim_010 },
   {
     "hrsh7th/nvim-cmp",
     dependencies = {
@@ -598,6 +607,7 @@ require("lazy").setup({
 
   {
     "folke/trouble.nvim",
+    cond = nvim_010,
     opts = {},
     keys = {
       { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>",              desc = "Problems (workspace)" },
@@ -734,77 +744,79 @@ vim.keymap.set("n", "<leader>kc", function()
 end, { desc = "K9s (context…)" })
 
 
----------- LSP servers ----------
-local lsp = require("lspconfig")
-local mason = require("mason")
-local mason_lsp = require("mason-lspconfig")
+---------- LSP servers (require 0.10+) ----------
+if nvim_010 then
+  local lsp = require("lspconfig")
+  local mason = require("mason")
+  local mason_lsp = require("mason-lspconfig")
 
-mason.setup()
-mason_lsp.setup({
-  ensure_installed = {
-    "ts_ls", "html", "cssls", "eslint",
-    "gopls", "rust_analyzer",
-    "clangd",
-    "yamlls", "jsonls",
-    "dockerls", "docker_compose_language_service",
-    "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls",
-  },
-  automatic_installation = true,
-})
+  mason.setup()
+  mason_lsp.setup({
+    ensure_installed = {
+      "ts_ls", "html", "cssls", "eslint",
+      "gopls", "rust_analyzer",
+      "clangd",
+      "yamlls", "jsonls",
+      "dockerls", "docker_compose_language_service",
+      "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls",
+    },
+    automatic_installation = true,
+  })
 
-local cmp_cap = require("cmp_nvim_lsp").default_capabilities()
-local on_attach = function(client, bufnr)
-  local nmap = function(lhs, rhs, desc) vim.keymap.set("n", lhs, rhs, { buffer = bufnr, desc = desc }) end
-  nmap("gd", vim.lsp.buf.definition, "Go to Definition")
-  nmap("gr", vim.lsp.buf.references, "References")
-  nmap("gD", vim.lsp.buf.declaration, "Declaration")
-  nmap("gi", vim.lsp.buf.implementation, "Implementation")
-  nmap("K", vim.lsp.buf.hover, "Hover")
-  nmap("<F2>", vim.lsp.buf.rename, "Rename (F2)")
-  nmap("<leader>rn", vim.lsp.buf.rename, "Rename")
-  nmap("<leader>ca", vim.lsp.buf.code_action, "Code Action")
-  nmap("<leader>f", function() require("conform").format({ async = true }) end, "Format")
-  -- breadcrumbs
-  pcall(function()
-    local navic = require("nvim-navic")
-    if client.server_capabilities.documentSymbolProvider then
-      navic.attach(client, bufnr)
-    end
-  end)
-end
-
--- YAML with SchemaStore (K8s etc.)
-lsp.yamlls.setup({
-  on_attach = on_attach,
-  capabilities = cmp_cap,
-  settings = {
-    yaml = {
-      schemaStore = { enable = false, url = "" },
-      schemas = require("schemastore").yaml.schemas(),
-      format = { enable = true },
-      validate = true,
-      hover = true,
-      completion = true,
-    }
-  }
-})
-
--- Rust: clippy on save
-lsp.rust_analyzer.setup({
-  on_attach = on_attach,
-  capabilities = cmp_cap,
-  settings = { ["rust-analyzer"] = { check = { command = "clippy" } } }
-})
-
--- Others
-for _, name in ipairs({
-  "ts_ls", "html", "cssls", "eslint", "gopls", "clangd", "jsonls",
-  "dockerls", "docker_compose_language_service", "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls"
-}) do
-  if name ~= "yamlls" and lsp[name] then
-    lsp[name].setup({ on_attach = on_attach, capabilities = cmp_cap })
+  local cmp_cap = require("cmp_nvim_lsp").default_capabilities()
+  local on_attach = function(client, bufnr)
+    local nmap = function(lhs, rhs, desc) vim.keymap.set("n", lhs, rhs, { buffer = bufnr, desc = desc }) end
+    nmap("gd", vim.lsp.buf.definition, "Go to Definition")
+    nmap("gr", vim.lsp.buf.references, "References")
+    nmap("gD", vim.lsp.buf.declaration, "Declaration")
+    nmap("gi", vim.lsp.buf.implementation, "Implementation")
+    nmap("K", vim.lsp.buf.hover, "Hover")
+    nmap("<F2>", vim.lsp.buf.rename, "Rename (F2)")
+    nmap("<leader>rn", vim.lsp.buf.rename, "Rename")
+    nmap("<leader>ca", vim.lsp.buf.code_action, "Code Action")
+    nmap("<leader>f", function() require("conform").format({ async = true }) end, "Format")
+    -- breadcrumbs
+    pcall(function()
+      local navic = require("nvim-navic")
+      if client.server_capabilities.documentSymbolProvider then
+        navic.attach(client, bufnr)
+      end
+    end)
   end
-end
+
+  -- YAML with SchemaStore (K8s etc.)
+  lsp.yamlls.setup({
+    on_attach = on_attach,
+    capabilities = cmp_cap,
+    settings = {
+      yaml = {
+        schemaStore = { enable = false, url = "" },
+        schemas = require("schemastore").yaml.schemas(),
+        format = { enable = true },
+        validate = true,
+        hover = true,
+        completion = true,
+      }
+    }
+  })
+
+  -- Rust: clippy on save
+  lsp.rust_analyzer.setup({
+    on_attach = on_attach,
+    capabilities = cmp_cap,
+    settings = { ["rust-analyzer"] = { check = { command = "clippy" } } }
+  })
+
+  -- Others
+  for _, name in ipairs({
+    "ts_ls", "html", "cssls", "eslint", "gopls", "clangd", "jsonls",
+    "dockerls", "docker_compose_language_service", "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls"
+  }) do
+    if name ~= "yamlls" and lsp[name] then
+      lsp[name].setup({ on_attach = on_attach, capabilities = cmp_cap })
+    end
+  end
+end -- nvim_010
 
 -- ---------- VS Code-like keymaps (use Cmd in Kitty → Ctrl in Neovim) ----------
 map("n", "<C-p>", "<cmd>Telescope find_files<cr>", { desc = "Quick Open" })      -- Cmd+P
@@ -820,15 +832,17 @@ map({ "n", "t" }, "<C-`>", "<cmd>ToggleTerm<cr>", { desc = "Toggle terminal" }) 
 map("n", "<leader>1", function() require("nvim-tree.api").tree.focus() end, { desc = "Focus Explorer" })
 map("n", "<leader>2", "<C-w>w", { desc = "Focus Editor" })
 map("n", "<leader>3", "<cmd>AerialOpen<cr>", { desc = "Focus Outline" })
-map("n", "<leader>4", "<cmd>Trouble diagnostics toggle focus=true<cr>", { desc = "Focus Problems" })
+if nvim_010 then
+  map("n", "<leader>4", "<cmd>Trouble diagnostics toggle focus=true<cr>", { desc = "Focus Problems" })
+end
 
 -- ---------- IDE layout ----------
 vim.api.nvim_create_user_command("IDE", function()
   vim.cmd("NvimTreeOpen")
   vim.cmd("wincmd l") -- go to editor
-  require("aerial").open({ direction = "right" })
-  require("trouble").open("diagnostics")
-  require("toggleterm").toggle(1) -- terminal
+  pcall(function() require("aerial").open({ direction = "right" }) end)
+  pcall(function() require("trouble").open("diagnostics") end)
+  pcall(function() require("toggleterm").toggle(1) end)
   vim.cmd("wincmd J")             -- ensure terminal at bottom
   vim.cmd("resize 12")
   pcall(function() require("codewindow").open_minimap() end)

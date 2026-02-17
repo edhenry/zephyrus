@@ -204,10 +204,8 @@ Bootstrap automatically symlinks `nvim/` to `~/.config/nvim` and the included `i
 If you use your own `init.lua`, add the plugin to lazy.nvim:
 
 ```lua
--- Auto-detect zephyrus root from the ~/.config/zephyrus symlink
-local zeph_link = vim.fn.resolve(vim.fn.expand("~/.config/zephyrus"))
-local zeph_root = vim.fn.fnamemodify(zeph_link, ":h")
-{ dir = zeph_root .. "/nvim-plugin", lazy = false },
+-- Point at wherever you cloned zephyrus
+{ dir = "/path/to/zephyrus/nvim-plugin", lazy = false },
 ```
 
 Commands:
