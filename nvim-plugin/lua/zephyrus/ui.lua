@@ -751,7 +751,7 @@ function M.render_agent_detail(buf, agent, capture_lines, width)
   table.insert(lines, "")
   table.insert(lines, "  " .. string.rep("─", sep_w))
   table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephSeparator" })
-  table.insert(lines, "  i=instruct  d=diff  m=merge  x=reject  Enter=focus pane  Esc=back  G=bottom")
+  table.insert(lines, "  i=instruct  d=diff  m=merge  x=reject  Enter=takeover  Esc=back  G=bottom")
   table.insert(highlights, { line = #lines - 1, col_start = 0, col_end = -1, hl = "ZephHeader" })
 
   vim.bo[buf].modifiable = true

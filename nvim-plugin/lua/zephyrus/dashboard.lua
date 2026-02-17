@@ -5,6 +5,9 @@ local ui = require("zephyrus.ui")
 
 local M = {}
 
+-- Tmux socket must match daemon's TMUX_SOCKET (layout_engine.py)
+local _tmux_cmd = "tmux -L zephyrus"
+
 --- Safely convert a value that may be vim.NIL (JSON null) to a Lua string or nil.
 local function safe_str(v)
   if v == nil or v == vim.NIL then return nil end
@@ -293,8 +296,9 @@ local function _action_focus_pane()
     vim.notify("Zephyrus: no tmux pane for this agent", vim.log.levels.WARN)
     return
   end
-  vim.fn.system(string.format("tmux select-pane -t %s", pane))
-  vim.notify(string.format("Focused pane %s (%s)", pane, safe_str(agent.name) or ""), vim.log.levels.INFO)
+  vim.fn.system(string.format("%s select-pane -t %s", _tmux_cmd, pane))
+  vim.fn.system(string.format("%s resize-pane -Z -t %s", _tmux_cmd, pane))
+  vim.notify(string.format("Takeover: %s (%s) — C-a z to unzoom", pane, safe_str(agent.name) or ""), vim.log.levels.INFO)
 end
 
 local function _action_send_instruction()
@@ -467,7 +471,7 @@ local function _setup_keymaps()
     else
       _action_focus_pane()
     end
-  end, "Enter detail / focus pane")
+  end, "Enter detail / takeover pane")
   mmap("<Esc>",  _exit_detail,                   "Back to cards")
   mmap("<BS>",   _exit_detail,                   "Back to cards")
   mmap("i",      _action_send_instruction,       "Send instruction")

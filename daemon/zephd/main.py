@@ -584,6 +584,15 @@ async def _launch_agents_for_layout(layout_spec, pane_targets, project_path):
     # Build lookup of existing agents by name
     existing_by_name = {a.name: a for a in agents.list_agents()}
 
+    # Deregister agents that aren't part of this layout (e.g. leftover from
+    # a previous layout with more agents).
+    layout_agent_names = {p.id for p in layout_spec.panes if p.type == "agent"}
+    for name, agent in list(existing_by_name.items()):
+        if name not in layout_agent_names:
+            agents.deregister(agent.id)
+            logger.info("Deregistered stale agent %s (not in layout %s)", name, layout_spec.name)
+            del existing_by_name[name]
+
     for pane in layout_spec.panes:
         if pane.type != "agent" or pane.id not in pane_targets:
             continue

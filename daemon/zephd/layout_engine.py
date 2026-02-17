@@ -13,11 +13,12 @@ import yaml
 logger = logging.getLogger("zephd.layout")
 
 LAYOUT_DIR = Path(__file__).resolve().parent.parent.parent / "tmux" / "layouts"
+TMUX_CONF = Path(__file__).resolve().parent.parent.parent / "tmux" / "zephyrus.conf"
 SESSION_NAME = "zephyrus"
 # Dedicated tmux socket so all commands hit the same server regardless of the
 # daemon's TMUX env var (which varies depending on how/where it was started).
 TMUX_SOCKET = "zephyrus"
-_TMUX = f"tmux -L {TMUX_SOCKET}"
+_TMUX = f"tmux -L {TMUX_SOCKET} -f {TMUX_CONF}"
 
 
 @dataclass
@@ -89,6 +90,18 @@ async def session_exists() -> bool:
     return code == 0
 
 
+async def _get_window_index() -> str:
+    """Get the first window index for the session.
+
+    Respects tmux base-index (which may be 0 or 1 depending on user config).
+    """
+    _, output = await _run(
+        f"{_TMUX} list-windows -t {SESSION_NAME} -F '#{{window_index}}'"
+    )
+    idx = output.strip().split("\n")[0].strip() if output.strip() else "0"
+    return idx
+
+
 async def create_session(project_path: str) -> None:
     """Create the base tmux session if it doesn't exist."""
     if await session_exists():
@@ -123,7 +136,11 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
     if not all_panes:
         return pane_targets
 
-    # If session already existed, map existing panes to layout pane IDs
+    # Get the actual window index (respects tmux base-index setting)
+    win_idx = await _get_window_index() if already_existed else None
+
+    # If session already existed, check if pane count matches the layout.
+    # A mismatch means a different layout was used before — kill and recreate.
     if already_existed:
         _, existing = await _run(
             f"{_TMUX} list-panes -t {SESSION_NAME} -F '#{{pane_index}}'"
@@ -131,17 +148,37 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
         existing_indices = [
             line.strip() for line in existing.strip().split("\n") if line.strip()
         ]
-        for i, pane in enumerate(all_panes):
-            if i < len(existing_indices):
-                pane_targets[pane.id] = f"{SESSION_NAME}:0.{existing_indices[i]}"
-        logger.info(
-            "Session already exists with %d panes, reusing targets",
-            len(existing_indices),
-        )
-        return pane_targets
+        if len(existing_indices) == len(all_panes):
+            for i, pane in enumerate(all_panes):
+                pane_targets[pane.id] = f"{SESSION_NAME}:{win_idx}.{existing_indices[i]}"
+            logger.info(
+                "Session already exists with %d panes, reusing targets",
+                len(existing_indices),
+            )
+            return pane_targets
+        else:
+            logger.info(
+                "Pane count mismatch (have %d, need %d) — recreating session",
+                len(existing_indices),
+                len(all_panes),
+            )
+            await kill_session()
+            await create_session(project_path)
+            already_existed = False
+
+    # Fresh session — query window and pane indices (respects base-index settings)
+    win_idx = await _get_window_index()
+    _, first_pane_output = await _run(
+        f"{_TMUX} list-panes -t {SESSION_NAME} -F '#{{pane_index}}'"
+    )
+    first_pane_idx = (
+        first_pane_output.strip().split("\n")[0].strip()
+        if first_pane_output.strip()
+        else "0"
+    )
 
     # Fresh session — the first pane is already created
-    pane_targets[all_panes[0].id] = f"{SESSION_NAME}:0.0"
+    pane_targets[all_panes[0].id] = f"{SESSION_NAME}:{win_idx}.{first_pane_idx}"
 
     # Additional panes are created by splitting
     for i, pane in enumerate(all_panes[1:], 1):
@@ -155,9 +192,9 @@ async def apply_layout(layout: LayoutSpec, project_path: str) -> dict[str, str]:
         )
         idx = output.strip()
         if idx:
-            pane_targets[pane.id] = f"{SESSION_NAME}:0.{idx}"
+            pane_targets[pane.id] = f"{SESSION_NAME}:{win_idx}.{idx}"
         else:
-            pane_targets[pane.id] = f"{SESSION_NAME}:0.{i}"
+            pane_targets[pane.id] = f"{SESSION_NAME}:{win_idx}.{i}"
 
     # Re-tile for even spacing
     await _run(f"{_TMUX} select-layout -t {SESSION_NAME} tiled")
