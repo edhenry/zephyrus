@@ -71,6 +71,11 @@ vim.keymap.set({ "n", "t" }, "<D-j>", function()
   vim.cmd("resize 12")
 end, { desc = "Toggle bottom terminal" })
 
+-- ---------- Detect zephyrus root dynamically ----------
+local zeph_link = vim.fn.resolve(vim.fn.expand("~/.config/zephyrus"))
+local zeph_root = vim.fn.fnamemodify(zeph_link, ":h")
+local zeph_nvim_plugin = zeph_root .. "/nvim-plugin"
+
 -- ---------- lazy.nvim bootstrap ----------
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
@@ -95,7 +100,10 @@ require("lazy").setup({
     }, -- fidget handles progress
   },
 
-  -- Mardown and various other parsers
+  -- Zephyrus nvim-plugin (auto-detected from ~/.config/zephyrus symlink)
+  { dir = zeph_nvim_plugin, lazy = false },
+
+  -- Markdown and various other parsers
   {
     "OXY2DEV/markview.nvim",
     lazy = false,
@@ -104,9 +112,67 @@ require("lazy").setup({
     -- dependencies = { "saghen/blink.cmp" },
   },
 
+  -- Science Editing
+  {
+    'goerz/jupytext.nvim',
+    version = '0.2.0',
+    opts = {},
+  },
+
+  {
+    "quarto-dev/quarto-nvim",
+    dependencies = {
+      "jmbuhr/otter.nvim",
+      "nvim-treesitter/nvim-treesitter",
+    },
+  },
+
   -- Documentation Generation
   {
-    "kkoomen/vim-doge",
+    "danymat/neogen",
+    dependencies = { "nvim-treesitter/nvim-treesitter" },
+    cmd = "Neogen",
+    keys = {
+      { "<leader>ng", function() require("neogen").generate() end, desc = "Neogen: generate docstring" },
+    },
+    opts = {
+      enabled = true,
+      input_after_comment = true,
+      languages = {
+        python = {
+          template = {
+            annotation_convention = "google_docstrings",
+          },
+        },
+      },
+    },
+  },
+
+  {
+    "NickvanDyke/opencode.nvim",
+    dependencies = {
+      ---@module 'snacks'
+      { "folke/snacks.nvim", opts = { input = {}, picker = {}, terminal = {} } },
+    },
+    config = function()
+      ---@type opencode.Opts
+      vim.g.opencode_opts = {}
+
+      vim.o.autoread = true
+
+      vim.keymap.set({ "n", "x" }, "<C-a>", function() require("opencode").ask("@this: ", { submit = true }) end,
+        { desc = "Ask opencode" })
+      vim.keymap.set({ "n", "x" }, "<C-x>", function() require("opencode").select() end,
+        { desc = "Execute opencode action…" })
+      vim.keymap.set({ "n", "x" }, "ga", function() require("opencode").prompt("@this") end, { desc = "Add to opencode" })
+      vim.keymap.set({ "n", "t" }, "<C-.>", function() require("opencode").toggle() end, { desc = "Toggle opencode" })
+      vim.keymap.set("n", "<S-C-u>", function() require("opencode").command("session.half.page.up") end,
+        { desc = "opencode half page up" })
+      vim.keymap.set("n", "<S-C-d>", function() require("opencode").command("session.half.page.down") end,
+        { desc = "opencode half page down" })
+      vim.keymap.set('n', '+', '<C-a>', { desc = 'Increment', noremap = true })
+      vim.keymap.set('n', '-', '<C-x>', { desc = 'Decrement', noremap = true })
+    end,
   },
 
   -- OpenAI Codex
@@ -442,7 +508,7 @@ require("lazy").setup({
       format_on_save = { timeout_ms = 2000, lsp_fallback = true },
       formatters_by_ft = {
         lua = { "stylua" },
-        python = { "ruff_format", "black" },
+        python = { "ruff_format" },
         javascript = { "prettier", "eslint_d" },
         typescript = { "prettier", "eslint_d" },
         javascriptreact = { "prettier", "eslint_d" },
@@ -677,7 +743,6 @@ mason.setup()
 mason_lsp.setup({
   ensure_installed = {
     "ts_ls", "html", "cssls", "eslint",
-    "pyright",
     "gopls", "rust_analyzer",
     "clangd",
     "yamlls", "jsonls",
@@ -733,7 +798,7 @@ lsp.rust_analyzer.setup({
 
 -- Others
 for _, name in ipairs({
-  "ts_ls", "html", "cssls", "eslint", "pyright", "gopls", "clangd", "jsonls",
+  "ts_ls", "html", "cssls", "eslint", "gopls", "clangd", "jsonls",
   "dockerls", "docker_compose_language_service", "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls"
 }) do
   if name ~= "yamlls" and lsp[name] then

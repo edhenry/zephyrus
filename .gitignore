@@ -10,5 +10,8 @@ __pycache__/
 .zephyrus/
 .mcp.json
 
+# Vendored dependencies
+kitty/kitty-themes/
+
 # OS
 .DS_Store

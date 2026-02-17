@@ -23,7 +23,8 @@ USAGE
 fi
 
 # ---- paths
-TEMPLATE_DIR="${DEV_TEMPLATES:-$HOME/Downloads/nvim_polyglot_bundle_v2/project-templates}"
+SCRIPT_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+TEMPLATE_DIR="${DEV_TEMPLATES:-${SCRIPT_REPO}/templates}"
 PROJECT_ROOT="${DEV_ROOT:-$HOME/dev}"
 PROJECT_DIR="$PROJECT_ROOT/$PROJECT_NAME"
 

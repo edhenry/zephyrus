@@ -9,9 +9,17 @@ Agents coordinate through a shared task stack with priority ordering and depende
 ```bash
 git clone <repo-url> ~/zephyrus   # clone anywhere you like
 cd ~/zephyrus
-./bin/bootstrap.sh                 # creates venv, installs packages
+./bin/bootstrap.sh                 # links configs, installs packages
 source .venv/bin/activate          # activate the environment
 ```
+
+First run on a new machine? Use `--deps` to install system dependencies too:
+
+```bash
+./bin/bootstrap.sh --deps          # installs neovim, tmux, kitty, etc.
+```
+
+This uses `brew bundle` on macOS (via the included `Brewfile`) or `apt` on Linux (via `deps/apt-packages.txt`). Without `--deps`, bootstrap only links configs and installs Python packages — safe to re-run anytime.
 
 ### Verify it works
 
@@ -191,10 +199,15 @@ Shows agent counts and task breakdown: `zeph:2w/3a 4p/1r/2d`
 
 ### Neovim Integration
 
-Add the plugin to your config (lazy.nvim):
+Bootstrap automatically symlinks `nvim/` to `~/.config/nvim` and the included `init.lua` auto-detects the nvim-plugin path from the `~/.config/zephyrus` symlink — no manual config needed.
+
+If you use your own `init.lua`, add the plugin to lazy.nvim:
 
 ```lua
-{ dir = "/path/to/zephyrus/nvim-plugin", lazy = false },
+-- Auto-detect zephyrus root from the ~/.config/zephyrus symlink
+local zeph_link = vim.fn.resolve(vim.fn.expand("~/.config/zephyrus"))
+local zeph_root = vim.fn.fnamemodify(zeph_link, ":h")
+{ dir = zeph_root .. "/nvim-plugin", lazy = false },
 ```
 
 Commands:
@@ -249,7 +262,8 @@ Agents can push subtasks for other agents, flag work for review, and report thei
 ```
 zephyrus/
 ├── bin/
-│   ├── bootstrap.sh          # Install script (auto-detects repo location)
+│   ├── bootstrap.sh          # Full setup script (--deps for system packages)
+│   ├── devinit.sh            # Project scaffolding (python, node, go, etc.)
 │   ├── zeph                  # CLI wrapper
 │   ├── zephd                 # Daemon wrapper
 │   ├── zeph-mcp              # MCP server wrapper
@@ -287,18 +301,33 @@ zephyrus/
 │   ├── pyproject.toml
 │   └── zeph_tui/
 │       └── app.py            # Live dashboard with task/agent panels
+├── nvim/                     # Neovim config (symlinked to ~/.config/nvim)
+│   └── init.lua              # Full IDE config (LSP, treesitter, etc.)
 ├── nvim-plugin/              # Neovim plugin (Lua)
 │   ├── plugin/
 │   │   └── zephyrus.vim      # Command definitions
 │   └── lua/zephyrus/
 │       ├── init.lua          # Main module (setup, commands, API)
 │       └── ui.lua            # Floating windows + highlighting
+├── kitty/                    # Kitty terminal config
+│   ├── kitty.conf
+│   ├── theme.conf
+│   └── font.conf
 ├── tmux/
+│   ├── tmux.conf             # tmux config (symlinked to ~/.config/tmux/)
+│   ├── bin/                  # Status bar scripts (git, venv, system stats)
+│   │   ├── git_branch.sh
+│   │   ├── venv_name.sh
+│   │   └── system_stats.sh   # macOS + Linux support
 │   └── layouts/              # Layout definitions (YAML)
 │       ├── solo.yaml
 │       ├── pair.yaml
 │       ├── squad.yaml
 │       └── full.yaml
+├── templates/                # Project templates for devinit.sh
+├── deps/
+│   └── apt-packages.txt      # Linux package list
+├── Brewfile                  # macOS dependency manifest
 ├── docs/
 │   └── DESIGN.md             # Full architecture design document
 └── LICENSE
