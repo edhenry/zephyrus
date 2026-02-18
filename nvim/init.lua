@@ -26,6 +26,15 @@ opt.timeoutlen = 400
 opt.mouse = "a"
 opt.clipboard = "unnamedplus"
 
+-- OSC 52 clipboard: works over SSH when no local clipboard provider exists
+if vim.fn.has("nvim-0.10") == 1 and vim.fn.has("clipboard") == 0 then
+  vim.g.clipboard = {
+    name = "OSC 52",
+    copy  = { ["+"] = require("vim.ui.clipboard.osc52").copy("+"),  ["*"] = require("vim.ui.clipboard.osc52").copy("*") },
+    paste = { ["+"] = require("vim.ui.clipboard.osc52").paste("+"), ["*"] = require("vim.ui.clipboard.osc52").paste("*") },
+  }
+end
+
 -- Use NvimTree, not netrw
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
