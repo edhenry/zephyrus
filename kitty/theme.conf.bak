@@ -1,0 +1,2 @@
+# Chalkboard theme pointer (requires kitty-themes repo)
+include ./kitty-themes/themes/Japanesque.conf
