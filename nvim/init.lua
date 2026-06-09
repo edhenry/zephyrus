@@ -378,6 +378,7 @@ require("lazy").setup({
       actions = {
         open_file = {
           quit_on_open = false,
+          resize_window = false,
           window_picker = { enable = false }, -- ensure real split is created
         },
       },
@@ -467,6 +468,22 @@ require("lazy").setup({
   { "lukas-reineke/indent-blankline.nvim", main = "ibl",                          opts = {} },
   { "folke/todo-comments.nvim",            opts = {} },
   --  { "mg979/vim-visual-multi" }, -- multi-cursor
+
+  -- Database UI
+  {
+    "kristijanhusak/vim-dadbod-ui",
+    dependencies = {
+      { "tpope/vim-dadbod", lazy = true },
+      { "kristijanhusak/vim-dadbod-completion", ft = { "sql", "mysql", "plsql" }, lazy = true },
+    },
+    cmd = { "DBUI", "DBUIToggle", "DBUIAddConnection", "DBUIFindBuffer" },
+    init = function()
+      vim.g.db_ui_use_nerd_fonts = 1
+    end,
+    keys = {
+      { "<leader>db", "<cmd>DBUIToggle<cr>", desc = "Toggle DB UI" },
+    },
+  },
 
   -- Markdown preview with glow
   {
