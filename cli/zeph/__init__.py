@@ -1,0 +1,1 @@
+"""Zephyrus Command Center CLI."""

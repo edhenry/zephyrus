@@ -14,6 +14,34 @@ set -g default-terminal "tmux-256color"
 set -as terminal-overrides ',xterm-kitty:RGB'
 set -ga terminal-overrides ',*:Tc'
 
+# Make panes inherit the terminal's (Kitty) default fg/bg
+setw -g window-style 'fg=default,bg=default'
+setw -g window-active-style 'fg=default,bg=default'
+
+# ===== Chalkboard-style colours for tmux status bar =====
+set -g status on
+set -g status-interval 5
+set -g status-position bottom
+
+# Use Chalkboard-palette-like colours:
+# Background = slightly dark (#2b2b2b)
+# Foreground = light pastel (#e6e1dc)
+set -g status-style "bg=#2b2b2b, fg=#e6e1dc"
+
+# Inactive windows
+setw -g window-status-style "bg=#2b2b2b, fg=#747369"
+# Active window
+setw -g window-status-current-style "bg=#3a3a3a, fg=#eeeeee"
+
+# Left side: session name
+set -g status-left-length 60
+set -g status-left "#[fg=#2b2b2b,bg=#8f9d6a] #{session_name} #[fg=#8f9d6a,bg=#2b2b2b] #[fg=#e6e1dc,bg=#2b2b2b]#I:#W "
+
+# Right side: system info etc.
+set -g status-right-length 120
+set -g status-right "#[fg=#cda869]#(~/.config/tmux/bin/git_branch.sh \"#{pane_current_path}\") #[fg=#8f9d6a]#(~/.config/tmux/bin/venv_name.sh \"#{pane_current_path}\") #[fg=#b5d3f3]#(~/.config/tmux/bin/system_stats.sh) #[fg=#e6e1dc] %Y-%m-%d %H:%M "
+
+
 ##### TPM (Plugin Manager) #####
 # Ensure TPM is installed: git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 set -g @plugin 'tmux-plugins/tpm'
@@ -102,47 +130,33 @@ bind c new-window
 #bind -n M-Left  previous-window
 #bind -n M-Right next-window
 
-##### Status Bar — Nordic palette #####
-# bg: #242933 (gray0), fg: #BBC3D4 (white0)
-# blue: #81A1C1, cyan: #8FBCBB, green: #A3BE8C
-# yellow: #EBCB8B, orange: #D08770, magenta: #B48EAD
+##### Status Bar (Powerline-style) #####
 set -g status on
 set -g status-interval 5
 set -g status-justify centre
 set -g status-position bottom
 
-set -g status-style "bg=#242933,fg=#BBC3D4"
+# Colors to roughly match Chalkboard
+set -g status-style "bg=#2b2b2b,fg=#e6e1dc"
 
-# Message / command prompt
-set -g message-style "bg=#2E3440,fg=#EBCB8B"
-
-# Left: session name
+# Left: session ▸ window ◂
 set -g status-left-length 60
-set -g status-left "#[fg=#242933,bg=#81A1C1,bold] #{session_name} #[fg=#81A1C1,bg=#242933] "
+set -g status-left "#[fg=#2b2b2b,bg=#8f9d6a] #{session_name} #[fg=#8f9d6a,bg=#2b2b2b] #[fg=#e6e1dc,bg=#2b2b2b]#I:#W "
 
 # Inactive windows
-setw -g window-status-format " #[fg=#4C566A]#I:#W "
-# Active window
-setw -g window-status-current-format "#[fg=#242933,bg=#A3BE8C,bold] #I:#W #[fg=#A3BE8C,bg=#242933]"
+setw -g window-status-format " #[fg=#747369]#I:#W "
+# Active window (highlight)
+setw -g window-status-current-format "#[fg=#2b2b2b,bg=#cda869]#[fg=#2b2b2b,bg=#cda869] #I:#W #[fg=#cda869,bg=#2b2b2b]"
 
 # Right: git, venv, CPU load, battery, wifi, time
 set -g status-right-length 120
-set -g status-right "#[fg=#EBCB8B]#(~/.config/tmux/bin/git_branch.sh \"#{pane_current_path}\")\
- #[fg=#A3BE8C]#(~/.config/tmux/bin/venv_name.sh \"#{pane_current_path}\")\
- #[fg=#8FBCBB]#(~/.config/tmux/bin/system_stats.sh)\
- #[fg=#BBC3D4] %Y-%m-%d %H:%M "
+set -g status-right "#[fg=#cda869]#(~/.config/tmux/bin/git_branch.sh \"#{pane_current_path}\")\
+ #[fg=#8f9d6a]#(~/.config/tmux/bin/venv_name.sh \"#{pane_current_path}\")\
+ #[fg=#b5d3f3]#(~/.config/tmux/bin/system_stats.sh)\
+ #[fg=#e6e1dc] %Y-%m-%d %H:%M "
 
 ##### Clipboard (macOS) #####
 set-option -g set-clipboard on
 
-##### Enable TPM #####
+##### Enable TPM at the very end #####
 run '~/.tmux/plugins/tpm/tpm'
-
-##### Override after TPM (plugins can clobber styles) #####
-run-shell 'sleep 0.5 && \
-  tmux setw -g window-style "fg=#BBC3D4,bg=#242933" && \
-  tmux setw -g window-active-style "fg=default,bg=terminal" && \
-  tmux set -g pane-border-style "fg=#3B4252" && \
-  tmux set -g pane-active-border-style "fg=#81A1C1,bold" && \
-  tmux set -g pane-border-lines heavy && \
-  tmux set -g pane-border-indicators arrows'

@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Zephyrus state (local only)
+.zephyrus/
+.mcp.json
+
+# Vendored dependencies
+kitty/kitty-themes/
+
+# OS
+.DS_Store

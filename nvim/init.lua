@@ -2,6 +2,9 @@
 -- Tip: in Kitty set: macos_cmd_modifier ctrl
 -- Then press Cmd+P / Cmd+Shift+F / Cmd+B / Cmd+` etc.
 
+-- Version check: plugins require 0.10+
+local nvim_010 = vim.fn.has("nvim-0.10") == 1
+
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
@@ -21,7 +24,20 @@ opt.sidescrolloff = 6
 opt.updatetime = 200
 opt.timeoutlen = 400
 opt.mouse = "a"
+opt.mousemodel = "extend"
 opt.clipboard = "unnamedplus"
+
+-- OSC 52 clipboard: works over SSH when no local clipboard provider exists
+if vim.fn.has("nvim-0.10") == 1 and vim.fn.has("clipboard") == 0 then
+  vim.g.clipboard = {
+    name  = "OSC 52",
+    copy  = { ["+"] = require("vim.ui.clipboard.osc52").copy("+"), ["*"] = require("vim.ui.clipboard.osc52").copy("*") },
+    paste = { ["+"] = require("vim.ui.clipboard.osc52").paste("+"), ["*"] = require("vim.ui.clipboard.osc52").paste("*") },
+  }
+end
+
+-- Auto-copy to clipboard on mouse release
+vim.keymap.set("v", "<LeftRelease>", '"+y', { silent = true, desc = "Copy selection to clipboard on mouse release" })
 
 -- Use NvimTree, not netrw
 vim.g.loaded_netrw = 1
@@ -32,7 +48,8 @@ vim.opt.splitbelow = true -- horizontal splits open below
 
 local map = vim.keymap.set
 map("n", "<leader>w", "<cmd>w<cr>", { desc = "Save" })
-map("n", "<leader>q", "<cmd>q<cr>", { desc = "Quit" })
+map("n", "<leader>q", "<cmd>bd<cr>", { desc = "Close buffer" })
+map("n", "<leader>Q", "<cmd>q<cr>", { desc = "Quit window" })
 map("i", "jj", "<Esc>", { desc = "Exit insert" })
 
 -- Normal mode word jumps with Option/Alt
@@ -71,6 +88,18 @@ vim.keymap.set({ "n", "t" }, "<D-j>", function()
   vim.cmd("resize 12")
 end, { desc = "Toggle bottom terminal" })
 
+-- ---------- Neovim 0.10+ required for plugins ----------
+if not nvim_010 then
+  vim.notify("Zephyrus: Neovim 0.10+ required for plugins. Running with basic settings only.", vim.log.levels.WARN)
+  return
+end
+
+-- ---------- Detect zephyrus root dynamically ----------
+-- Derive from this file's real path: {repo}/nvim/init.lua -> {repo}
+local _this = debug.getinfo(1, "S").source:sub(2)
+local zeph_root = vim.fn.fnamemodify(vim.fn.resolve(_this), ":h:h")
+local zeph_nvim_plugin = zeph_root .. "/nvim-plugin"
+
 -- ---------- lazy.nvim bootstrap ----------
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
@@ -88,25 +117,94 @@ require("lazy").setup({
   { "j-hui/fidget.nvim",          opts = {} }, -- LSP progress
   {
     "folke/noice.nvim",
+
     dependencies = { "MunifTanjim/nui.nvim" },
     opts = {
       presets = { bottom_search = true, command_palette = true },
-      lsp = { progress = { enabled = false } }
+      lsp = { progress = { enabled = false } },
+      cmdline = {
+        format = {
+          cmdline     = { pattern = "^:", icon = ":", lang = "" },
+          search_down = { kind = "search", pattern = "^/", icon = "/", lang = "" },
+          search_up   = { kind = "search", pattern = "^%?", icon = "?", lang = "" },
+          substitute  = { pattern = "^:%%?s/", icon = "s/", lang = "" },
+        },
+      },
     }, -- fidget handles progress
   },
 
-  -- Mardown and various other parsers
+  -- Zephyrus nvim-plugin (auto-detected from ~/.config/zephyrus symlink)
+  { dir = zeph_nvim_plugin,                       lazy = false },
+
+  -- Markdown and various other parsers
   {
     "OXY2DEV/markview.nvim",
     lazy = false,
 
-    -- Completion for `blink.cmp`
-    -- dependencies = { "saghen/blink.cmp" },
+  },
+
+  -- Science Editing
+  {
+    'goerz/jupytext.nvim',
+    version = '0.2.0',
+    opts = {},
+  },
+
+  {
+    "quarto-dev/quarto-nvim",
+
+    dependencies = {
+      "jmbuhr/otter.nvim",
+      "nvim-treesitter/nvim-treesitter",
+    },
   },
 
   -- Documentation Generation
   {
-    "kkoomen/vim-doge",
+    "danymat/neogen",
+    dependencies = { "nvim-treesitter/nvim-treesitter" },
+    cmd = "Neogen",
+    keys = {
+      { "<leader>ng", function() require("neogen").generate() end, desc = "Neogen: generate docstring" },
+    },
+    opts = {
+      enabled = true,
+      input_after_comment = true,
+      languages = {
+        python = {
+          template = {
+            annotation_convention = "google_docstrings",
+          },
+        },
+      },
+    },
+  },
+
+  {
+    "NickvanDyke/opencode.nvim",
+    dependencies = {
+      ---@module 'snacks'
+      { "folke/snacks.nvim", opts = { input = {}, picker = {}, terminal = {} } },
+    },
+    config = function()
+      ---@type opencode.Opts
+      vim.g.opencode_opts = {}
+
+      vim.o.autoread = true
+
+      vim.keymap.set({ "n", "x" }, "<C-a>", function() require("opencode").ask("@this: ", { submit = true }) end,
+        { desc = "Ask opencode" })
+      vim.keymap.set({ "n", "x" }, "<C-x>", function() require("opencode").select() end,
+        { desc = "Execute opencode action…" })
+      vim.keymap.set({ "n", "x" }, "ga", function() require("opencode").prompt("@this") end, { desc = "Add to opencode" })
+      vim.keymap.set({ "n", "t" }, "<C-.>", function() require("opencode").toggle() end, { desc = "Toggle opencode" })
+      vim.keymap.set("n", "<S-C-u>", function() require("opencode").command("session.half.page.up") end,
+        { desc = "opencode half page up" })
+      vim.keymap.set("n", "<S-C-d>", function() require("opencode").command("session.half.page.down") end,
+        { desc = "opencode half page down" })
+      vim.keymap.set('n', '+', '<C-a>', { desc = 'Increment', noremap = true })
+      vim.keymap.set('n', '-', '<C-x>', { desc = 'Decrement', noremap = true })
+    end,
   },
 
   -- OpenAI Codex
@@ -215,6 +313,7 @@ require("lazy").setup({
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
+    main = "nvim-treesitter",
     opts = {
       highlight        = { enable = true },
       indent           = { enable = true },
@@ -225,21 +324,20 @@ require("lazy").setup({
         "python", "regex", "rust", "sql", "terraform", "toml", "vim", "vimdoc", "yaml"
       },
     },
-    config = function(_, opts)
-      require("nvim-treesitter.configs").setup(opts)
-    end,
   },
 
   -- (optional but useful for motions/selection powered by TS)
   { "nvim-treesitter/nvim-treesitter-textobjects" },
 
-  -- Theme: VS Code
+  -- Theme: Nordic
   {
-    "Mofiqul/vscode.nvim",
+    "AlexvZyl/nordic.nvim",
+    lazy = false,
     priority = 1000,
     config = function()
-      require("vscode").setup({ transparent = false, italic_comments = true })
-      vim.cmd.colorscheme("vscode")
+      require("nordic").setup({ italic_comments = true })
+      require("nordic").load()
+      vim.api.nvim_set_hl(0, "Visual", { bg = "#e5c07b", fg = "#282c34" })
     end
   },
 
@@ -247,14 +345,14 @@ require("lazy").setup({
   {
     "nvim-lualine/lualine.nvim",
     config = function()
-      require("lualine").setup({ options = { theme = "vscode", icons_enabled = true } })
+      require("lualine").setup({ options = { theme = "nordic", icons_enabled = true } })
     end
   },
   {
     "akinsho/bufferline.nvim",
     version = "*",
     dependencies = "nvim-tree/nvim-web-devicons",
-    opts = { options = { diagnostics = "nvim_lsp", show_buffer_close_icons = false } }
+    opts = { options = { diagnostics = "nvim_lsp", show_buffer_close_icons = false, always_show_bufferline = true } }
   },
 
   -- Explorer (sidebar)
@@ -280,6 +378,7 @@ require("lazy").setup({
       actions = {
         open_file = {
           quit_on_open = false,
+          resize_window = false,
           window_picker = { enable = false }, -- ensure real split is created
         },
       },
@@ -338,7 +437,7 @@ require("lazy").setup({
   },
 
   -- Breadcrumbs
-  { "SmiteshP/nvim-navic",                        lazy = true },
+  { "SmiteshP/nvim-navic",                 lazy = true },
   {
     "utilyre/barbecue.nvim",
     name = "barbecue",
@@ -350,6 +449,7 @@ require("lazy").setup({
   -- Problems / Diagnostics
   {
     "folke/trouble.nvim",
+
     opts = {},
     keys = {
       { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics panel" },
@@ -367,7 +467,34 @@ require("lazy").setup({
   { "windwp/nvim-autopairs",               opts = {} },
   { "lukas-reineke/indent-blankline.nvim", main = "ibl",                          opts = {} },
   { "folke/todo-comments.nvim",            opts = {} },
-  { "mg979/vim-visual-multi" }, -- multi-cursor
+  --  { "mg979/vim-visual-multi" }, -- multi-cursor
+
+  -- Database UI
+  {
+    "kristijanhusak/vim-dadbod-ui",
+    dependencies = {
+      { "tpope/vim-dadbod", lazy = true },
+      { "kristijanhusak/vim-dadbod-completion", ft = { "sql", "mysql", "plsql" }, lazy = true },
+    },
+    cmd = { "DBUI", "DBUIToggle", "DBUIAddConnection", "DBUIFindBuffer" },
+    init = function()
+      vim.g.db_ui_use_nerd_fonts = 1
+    end,
+    keys = {
+      { "<leader>db", "<cmd>DBUIToggle<cr>", desc = "Toggle DB UI" },
+    },
+  },
+
+  -- Markdown preview with glow
+  {
+    "ellisonleao/glow.nvim",
+    cmd = "Glow",
+    ft = "markdown",
+    opts = {},
+    keys = {
+      { "<leader>mp", "<cmd>Glow<cr>", desc = "Markdown preview (glow)" },
+    },
+  },
 
   -- Terminal like VS Code (toggle terminal)
   {
@@ -377,16 +504,6 @@ require("lazy").setup({
     config = function(_, opts)
       require("toggleterm").setup(opts)
       map({ "n", "t" }, "<C-`>", "<cmd>ToggleTerm<cr>", { desc = "Toggle terminal (Cmd+` via Kitty)" })
-    end
-  },
-
-  -- Minimap
-  {
-    "gorbit99/codewindow.nvim",
-    config = function()
-      local codewindow = require("codewindow")
-      codewindow.setup()
-      codewindow.apply_default_keybinds() -- <leader>mm to toggle
     end
   },
 
@@ -442,7 +559,7 @@ require("lazy").setup({
       format_on_save = { timeout_ms = 2000, lsp_fallback = true },
       formatters_by_ft = {
         lua = { "stylua" },
-        python = { "ruff_format", "black" },
+        python = { "ruff_format" },
         javascript = { "prettier", "eslint_d" },
         typescript = { "prettier", "eslint_d" },
         javascriptreact = { "prettier", "eslint_d" },
@@ -532,6 +649,7 @@ require("lazy").setup({
 
   {
     "folke/trouble.nvim",
+
     opts = {},
     keys = {
       { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>",              desc = "Problems (workspace)" },
@@ -677,7 +795,6 @@ mason.setup()
 mason_lsp.setup({
   ensure_installed = {
     "ts_ls", "html", "cssls", "eslint",
-    "pyright",
     "gopls", "rust_analyzer",
     "clangd",
     "yamlls", "jsonls",
@@ -733,7 +850,7 @@ lsp.rust_analyzer.setup({
 
 -- Others
 for _, name in ipairs({
-  "ts_ls", "html", "cssls", "eslint", "pyright", "gopls", "clangd", "jsonls",
+  "ts_ls", "html", "cssls", "eslint", "gopls", "clangd", "jsonls",
   "dockerls", "docker_compose_language_service", "bashls", "terraformls", "lua_ls", "marksman", "sqlls", "helm_ls"
 }) do
   if name ~= "yamlls" and lsp[name] then
@@ -761,12 +878,11 @@ map("n", "<leader>4", "<cmd>Trouble diagnostics toggle focus=true<cr>", { desc =
 vim.api.nvim_create_user_command("IDE", function()
   vim.cmd("NvimTreeOpen")
   vim.cmd("wincmd l") -- go to editor
-  require("aerial").open({ direction = "right" })
-  require("trouble").open("diagnostics")
-  require("toggleterm").toggle(1) -- terminal
-  vim.cmd("wincmd J")             -- ensure terminal at bottom
+  pcall(function() require("aerial").open({ direction = "right" }) end)
+  pcall(function() require("trouble").open("diagnostics") end)
+  pcall(function() require("toggleterm").toggle(1) end)
+  vim.cmd("wincmd J") -- ensure terminal at bottom
   vim.cmd("resize 12")
-  pcall(function() require("codewindow").open_minimap() end)
 end, {})
 
 -- Auto apply layout when opening a folder (nvim .)
@@ -800,17 +916,6 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
--- If you're using nvim-tree, this avoids weird window picking on open
-pcall(function()
-  require("nvim-tree").setup({
-    actions = {
-      open_file = {
-        window_picker = { enable = false }, -- open files in the current editor window
-      },
-    },
-    view = { side = "left", width = 34 },
-  })
-end)
 
 -- Helper: ensure we’re on a real editor window (not tree/outline/quickfix) before splitting
 local function focus_editor_window()
@@ -845,7 +950,7 @@ end, { desc = "Horizontal split (editor)" })
 
 -- One statusline for the whole UI (bottom), but per-window titles at the top
 vim.opt.laststatus = 3  -- global statusline
-vim.opt.showtabline = 1 -- only show tabline when >1 tab
+vim.opt.showtabline = 2 -- only show tabline when >1 tab
 
 -- Highlight (optional)
 vim.api.nvim_set_hl(0, "WinBar", { link = "StatusLine" })
@@ -887,7 +992,7 @@ if has_icons then
   end
 end
 
-vim.opt.showtabline = 1
+vim.opt.showtabline = 2
 
 -- Tooltips for dayssss
 -- 🚩 Make tooltips feel snappy (used by CursorHold)

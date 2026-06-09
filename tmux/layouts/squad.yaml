@@ -1,0 +1,20 @@
+name: squad
+description: "Four agents with review pane and git panel"
+panes:
+  - id: agent-1
+    type: agent
+    mode: claude
+  - id: agent-2
+    type: agent
+    mode: claude
+  - id: agent-3
+    type: agent
+    mode: claude
+  - id: agent-4
+    type: agent
+    mode: claude
+  - id: review
+    type: nvim
+    args: []
+  - id: git
+    type: lazygit
