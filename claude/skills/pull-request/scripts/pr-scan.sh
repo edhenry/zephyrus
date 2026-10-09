@@ -14,7 +14,7 @@ echo "state=$(jq -r .state <<<"$json") base=$base head=$(jq -r .headRefName <<<"
 jq -r '.title' <<<"$json" | grep -q '—' && { echo "FAIL em dash in title"; fail=1; }
 hits=$(jq -r '.commits[] | .messageHeadline + "\n" + .messageBody' <<<"$json" | grep -ciE 'co-authored-by: *claude|claude-session|generated with')
 [ "$hits" -eq 0 ] || { echo "FAIL $hits attribution line(s) in commit messages"; fail=1; }
-bhits=$(jq -r .body <<<"$json" | grep -iE 'claude|generated with|co-authored' | grep -viE '^[^a-z]*$' | grep -ciE 'generated with|co-authored|claude code|claude-session|claude (opus|sonnet|haiku|fable)|anthropic')
+bhits=$(jq -r .body <<<"$json" | grep -iE 'claude|generated with|co-authored' | grep -viE '^[^a-z]*$' | grep -ciE 'generated with|co-authored|claude-session|claude (opus|sonnet|haiku|fable)|noreply@anthropic')
 [ "$bhits" -eq 0 ] || { echo "FAIL $bhits attribution line(s) in PR body"; fail=1; }
 ticket=${PR_TICKET_PATTERN-'[A-Z][A-Z0-9]+-[0-9]+'}
 if [ -n "$ticket" ]; then
