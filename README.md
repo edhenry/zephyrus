@@ -255,6 +255,10 @@ This gives the agent 6 tools:
 
 Agents can push subtasks for other agents, flag work for review, and report their progress — enabling real coordination, not just parallel isolation.
 
+### Claude Code Skills
+
+`claude/` holds Claude Code skills and a global `CLAUDE.md` for agent work: writing docs and PRs, briefing sub-agents, status replies, handoffs, and more. `bootstrap.sh` links each one into `~/.claude/`. If you already have your own skill or `CLAUDE.md` at one of those paths, bootstrap keeps it; `ZEPH_CLAUDE_FORCE=1 ./bin/bootstrap.sh` replaces it after moving yours to `<name>.bak`. See [`claude/README.md`](claude/README.md) for the list of skills and their settings.
+
 ## Project Structure
 
 ```
@@ -267,6 +271,7 @@ zephyrus/
 │   ├── zeph-mcp              # MCP server wrapper
 │   ├── zeph-tui              # TUI dashboard wrapper
 │   └── zeph-status           # tmux status line script
+├── claude/                   # Claude Code skills + CLAUDE.md, linked into ~/.claude
 ├── daemon/                   # Coordination daemon (FastAPI + SQLite)
 │   ├── pyproject.toml
 │   └── zephd/
