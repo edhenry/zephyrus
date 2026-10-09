@@ -82,6 +82,28 @@ echo "  Linked kitty configs -> ~/.config/kitty/"
 ln -sfn "${REPO}/zephyrus" "${HOME}/.config/zephyrus"
 echo "  Linked zephyrus/ -> ~/.config/zephyrus"
 
+# Claude Code: link each skill and CLAUDE.md, keeping any real file or folder already in place
+# unless ZEPH_CLAUDE_FORCE=1, which moves it to <name>.bak first.
+link_claude() {
+  local src="$1" dest="$2"
+  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    if [ "${ZEPH_CLAUDE_FORCE:-0}" = "1" ]; then
+      mv "$dest" "${dest}.bak"
+      echo "  Moved existing ${dest/#$HOME/\~} to ${dest/#$HOME/\~}.bak"
+    else
+      echo "  Kept your own ${dest/#$HOME/\~} (ZEPH_CLAUDE_FORCE=1 replaces it)"
+      return
+    fi
+  fi
+  ln -sfn "$src" "$dest"
+}
+mkdir -p "${HOME}/.claude/skills"
+for skill in "${REPO}"/claude/skills/*/; do
+  link_claude "${skill%/}" "${HOME}/.claude/skills/$(basename "$skill")"
+done
+link_claude "${REPO}/claude/CLAUDE.md" "${HOME}/.claude/CLAUDE.md"
+echo "  Linked claude/ skills and CLAUDE.md -> ~/.claude/"
+
 echo
 
 # --- Clone kitty-themes if missing ---
