@@ -14,6 +14,9 @@ set -euo pipefail
 LINE_TTL="${TMUX_STATS_TTL:-5}"
 SLOW_TTL="${TMUX_STATS_SLOW_TTL:-60}"
 WIFI_TTL="${TMUX_STATS_WIFI_TTL:-120}"
+[[ "$LINE_TTL" =~ ^[0-9]+$ ]] || LINE_TTL=5
+[[ "$SLOW_TTL" =~ ^[0-9]+$ ]] || SLOW_TTL=60
+[[ "$WIFI_TTL" =~ ^[0-9]+$ ]] || WIFI_TTL=120
 WIFI_TIMEOUT=60
 CACHE_DIR="${TMUX_STATS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/tmux-system-stats}"
 LINE_FILE="$CACHE_DIR/line"
@@ -42,7 +45,7 @@ write_lines() {
   shift
   {
     if ! { printf '%s\n' "$@" > "$tmp" && mv -f "$tmp" "$file"; }; then
-      rm -f "$tmp"
+      rm -f "$tmp" || true
     fi
   } 2>/dev/null
   return 0
@@ -79,12 +82,11 @@ refresh_slow_darwin() {
   while IFS= read -r line; do
     if [[ "$prev" =~ $wifi_port && "$line" == Device:* ]]; then
       wifi_if="${line#Device: }"
-      break
     fi
     prev="$line"
   done <<< "$(networksetup -listallhardwareports 2>/dev/null || true)"
 
-  if [[ -n "$wifi_if" ]] && ipconfig getifaddr "$wifi_if" >/dev/null 2>&1; then
+  if [[ -n "$wifi_if" && "$(ifconfig "$wifi_if" 2>/dev/null || true)" == *"status: active"* ]]; then
     NET_BASE="WiFi"
     WANT_WIFI=1
     return 0
@@ -108,6 +110,7 @@ refresh_slow_linux() {
 
   if command -v nmcli >/dev/null 2>&1; then
     ssid="$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes:' | cut -d: -f2 || true)"
+    ssid="${ssid%%$'\n'*}"
     if [[ -n "$ssid" ]]; then
       NET_BASE="WiFi:${ssid}"
     elif ip route get 1.1.1.1 &>/dev/null; then
@@ -140,25 +143,65 @@ start_wifi_refresh() {
   if read_lines "$WIFI_LOCK" && fresh "${CACHED[0]}" "$(( WIFI_TIMEOUT + 30 ))"; then
     return 0
   fi
-  if [[ -e "$WIFI_LOCK" ]]; then rm -f "$WIFI_LOCK" 2>/dev/null || true; fi
-  ( set -C; printf '%s\n' "$now" > "$WIFI_LOCK" ) 2>/dev/null || return 0
+
+  # The lock is linked into place with its contents already written, so a
+  # reader never sees it empty. The token lets a lookup tell its own lock
+  # from one that replaced it.
+  local token="$now.$$" claim="$WIFI_LOCK.$$" held=0
+  {
+    if [[ -e "$WIFI_LOCK" ]]; then rm -f "$WIFI_LOCK"; fi
+    if printf '%s\n' "$now" "$token" > "$claim" && ln "$claim" "$WIFI_LOCK"; then held=1; fi
+    rm -f "$claim"
+  } 2>/dev/null || true
+  (( held )) || return 0
 
   (
-    json="$CACHE_DIR/wifi.json"
+    json="$CACHE_DIR/wifi.json.$$"
+    profiler=""
+    watchdog=""
+    # shellcheck disable=SC2329
+    cleanup() {
+      [[ -z "$profiler" ]] || kill "$profiler" 2>/dev/null || true
+      [[ -z "$watchdog" ]] || kill "$watchdog" 2>/dev/null || true
+      rm -f "$json" 2>/dev/null || true
+      if read_lines "$WIFI_LOCK" && [[ "${CACHED[1]:-}" == "$token" ]]; then
+        rm -f "$WIFI_LOCK" 2>/dev/null || true
+      fi
+    }
+    trap cleanup EXIT
+
+    rm -f "$CACHE_DIR"/wifi.json.* 2>/dev/null || true
+    /usr/sbin/system_profiler -nospawn -json SPAirPortDataType > "$json" 2>/dev/null &
+    profiler=$!
+    (
+      timer=""
+      trap '[[ -z "$timer" ]] || kill "$timer" 2>/dev/null; exit 0' TERM
+      sleep "$WIFI_TIMEOUT" &
+      timer=$!
+      if wait "$timer"; then kill "$profiler" 2>/dev/null || true; fi
+    ) &
+    watchdog=$!
+
+    ok=0
     ssid=""
     rssi=""
-    trap 'rm -f "$json" "$WIFI_LOCK"' EXIT
-    /usr/sbin/system_profiler -json SPAirPortDataType > "$json" 2>/dev/null &
-    profiler=$!
-    ( sleep "$WIFI_TIMEOUT"; kill "$profiler" 2>/dev/null ) &
-    watchdog=$!
-    if wait "$profiler"; then
+    if wait "$profiler" && [[ -s "$json" ]]; then
+      ok=1
       key='SPAirPortDataType.0.spairport_airport_interfaces.0.spairport_current_network_information'
       ssid="$(/usr/bin/plutil -extract "$key._name" raw -o - "$json" 2>/dev/null || true)"
       rssi="$(/usr/bin/plutil -extract "$key.spairport_signal_noise" raw -o - "$json" 2>/dev/null || true)"
     fi
-    kill "$watchdog" 2>/dev/null || true
-    write_lines "$WIFI_FILE" "$now" "$ssid" "${rssi%% *}"
+    profiler=""
+
+    # Lines: time of this attempt, name, signal, time the name and signal
+    # were read. A failed lookup keeps the last reading.
+    if (( ok )); then
+      write_lines "$WIFI_FILE" "$now" "$ssid" "${rssi%% *}" "$now"
+    elif read_lines "$WIFI_FILE"; then
+      write_lines "$WIFI_FILE" "$now" "${CACHED[1]:-}" "${CACHED[2]:-}" "${CACHED[3]:-0}"
+    else
+      write_lines "$WIFI_FILE" "$now" "" "" 0
+    fi
   ) < /dev/null > /dev/null 2>&1 &
   return 0
 }
@@ -168,24 +211,31 @@ if (( IS_MAC )) && [[ "$WANT_WIFI" == "1" && "$WIFI_TTL" != "0" ]]; then
   SSID=""
   RSSI=""
   if read_lines "$WIFI_FILE"; then
-    WIFI_AT="${CACHED[0]}"
-    if fresh "$WIFI_AT" "$(( WIFI_TTL * 3 ))"; then
+    WIFI_TRIED="${CACHED[0]}"
+    if fresh "${CACHED[3]:-0}" "$(( WIFI_TTL * 3 ))"; then
       SSID="${CACHED[1]:-}"
       RSSI="${CACHED[2]:-}"
     fi
-    fresh "$WIFI_AT" "$WIFI_TTL" || start_wifi_refresh
+    fresh "$WIFI_TRIED" "$WIFI_TTL" || start_wifi_refresh
   else
     start_wifi_refresh
   fi
 
-  if [[ -n "$SSID" && "$SSID" != *redacted* ]]; then NET="WiFi:${SSID}"; fi
+  BARS=""
   if [[ "$RSSI" =~ ^-?[0-9]+$ ]]; then
-    if   (( RSSI >= -55 )); then NET+=" ▂▄▆█"
-    elif (( RSSI >= -65 )); then NET+=" ▂▄██"
-    elif (( RSSI >= -75 )); then NET+=" ▂▄▆ "
-    elif (( RSSI >= -85 )); then NET+=" ▂▄  "
-    else                         NET+=" ▂   "
+    if   (( RSSI >= -55 )); then BARS=" ▂▄▆█"
+    elif (( RSSI >= -65 )); then BARS=" ▂▄██"
+    elif (( RSSI >= -75 )); then BARS=" ▂▄▆ "
+    elif (( RSSI >= -85 )); then BARS=" ▂▄  "
+    else                         BARS=" ▂   "
     fi
+  fi
+  if [[ -n "$SSID" && "$SSID" != *redacted* ]]; then
+    NET="WiFi:${SSID}${BARS}"
+  elif [[ -n "$BARS" ]]; then
+    NET="WiFi${BARS}"
+  else
+    NET="WiFi:--"
   fi
 fi
 
